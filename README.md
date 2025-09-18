@@ -24,13 +24,13 @@ Our benchmarks demonstrate excellent performance for large-scale applications us
 - **Persistence**: 21 seconds for 10M leaf save/load cycle
 - **Memory**: Efficient memory usage for large-scale trees (20M leaves supported)
 
-## 🛠 Installation
+## Installation
 
 ```bash
 go get github.com/vocdoni/lean-imt-go
 ```
 
-## 📜 Usage
+## Usage
 
 ### Basic Usage
 
@@ -245,7 +245,7 @@ if err != nil {
 }
 ```
 
-## 📚 API Reference
+## API Reference
 
 ### Core Functions
 
@@ -274,6 +274,52 @@ if err != nil {
 - `Export()` - Export tree to JSON
 - `Sync()` - Sync changes to disk (persistent trees)
 - `Close()` - Close the tree and database
+
+## Gnark Circuit
+
+The `circuit` package provides zero-knowledge proof verification of Lean IMT Merkle proofs using Gnark. The circuit verifies that a leaf exists in a Merkle tree with a specific root using the following inputs:
+
+The circuit uses `github.com/vocdoni/gnark-crypto-primitives/hash/bn254/poseidon` for hashing.
+
+**Public Inputs:**
+- `merkle_root` - The Merkle tree root to verify against
+- `leaf_value` - The leaf value being proved
+
+**Private Inputs (Witness):**
+- `leaf_index` - Packed path bits indicating leaf position (LSB first)
+- `proof_siblings` - Array of sibling nodes for the proof path
+
+### Usage
+
+```go
+func (myCircuit *MyCircuit) Define(api frontend.API) error {
+    // Verify a Lean IMT proof within your circuit
+    isValid, err := circuit.VerifyLeanIMTProof(
+        api,
+        myCircuit.MerkleRoot,
+        myCircuit.LeafValue,
+        myCircuit.LeafIndex,
+        myCircuit.ProofSiblings,
+    )
+    if err != nil {
+        return err
+    }
+    
+    // Assert proof is valid
+    api.AssertIsEqual(isValid, 1)
+    return nil
+}
+```
+
+### Constraints
+
+| Max Depth | Constraints | Variables | Scaling Rate |
+|-----------|-------------|-----------|--------------|
+| 3         | 745         | 747       | Base         |
+| 5         | 1,239       | 1,241     | +247/level   |
+| 8         | 1,980       | 1,982     | +247/level   |
+| 10        | 2,474       | 2,476     | +247/level   |
+
 
 ## 🔗 References
 

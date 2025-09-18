@@ -7,6 +7,7 @@ require (
 	github.com/consensys/gnark-crypto v0.19.0
 	github.com/iden3/go-iden3-crypto v0.0.17
 	github.com/vocdoni/davinci-node v0.0.0-20250915100545-11fc394dd80c
+	github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20250721114051-04061c85ab97
 )
 
 require (

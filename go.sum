@@ -170,6 +170,8 @@ github.com/vocdoni/arbo v0.0.0-20250904220709-07ccfd3090b5 h1:wtUK5E131x07zdxnAG
 github.com/vocdoni/arbo v0.0.0-20250904220709-07ccfd3090b5/go.mod h1:SUsNx5GJJunlEMBo6ETTmys88B4bkTgqNV5N1jN3iic=
 github.com/vocdoni/davinci-node v0.0.0-20250915100545-11fc394dd80c h1:onErCyKOoZmjCqc7BlQKpDTbokPbXY1HydskJZvdjT4=
 github.com/vocdoni/davinci-node v0.0.0-20250915100545-11fc394dd80c/go.mod h1:S2q7oNu9e3njxBqGoI/x72v2DTfyOoh9aeVo3Wv/u9I=
+github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20250721114051-04061c85ab97 h1:85N0hCD0MxBH7P76m7TJB+6JwxzT2ajxrn5qutemTGs=
+github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20250721114051-04061c85ab97/go.mod h1:BOS7k/ifqwicL1CgLiq1NylPnMLCuNRBHU2HHHtnWOE=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/xdg-go/pbkdf2 v1.0.0 h1:Su7DPu48wXMwC3bs7MCNG+z4FhcyEuz5dlvchbq0B0c=
