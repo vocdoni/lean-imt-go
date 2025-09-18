@@ -207,21 +207,60 @@ if err != nil {
 }
 ```
 
+## Census Package
+
+The `census` package provides a voting census implementation using Lean IMT for efficient address-weight storage with zero-knowledge proof support. It packs Ethereum addresses (160 bits) and voting weights (88 bits) into single 248-bit values that fit safely within the BN254 scalar field (~254 bits) for circuit compatibility.
+
+The packing scheme combines address and weight into a single tree leaf: `packed = (address << 88) | weight`.
+
+### Usage
+
+```go
+import "github.com/vocdoni/lean-imt-go/census"
+
+// Create census with database persistence
+census, err := census.NewCensusIMTWithPebble("./census_data")
+if err != nil {
+    panic(err)
+}
+defer census.Close()
+
+// Add single address
+addr := common.HexToAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7")
+weight := big.NewInt(1000)
+err = census.Add(addr, weight)
+if err != nil {
+    panic(err)
+}
+
+// Bulk add multiple addresses (more efficient)
+addresses := []common.Address{
+    common.HexToAddress("0x8ba1f109551bD432803012645Hac136c22C177ec"),
+    common.HexToAddress("0x1234567890123456789012345678901234567890"),
+}
+weights := []*big.Int{big.NewInt(250), big.NewInt(75)}
+err = census.AddBulk(addresses, weights)
+if err != nil {
+    panic(err)
+}
+
+// Generate proof for circuit verification
+proof, err := census.GenerateProof(addr)
+if err != nil {
+    panic(err)
+}
+
+fmt.Printf("Census size: %d\n", census.Size())
+fmt.Printf("Root: %s\n", proof.Root.String())
+```
+
 ## Gnark Circuit
 
-The `circuit` package provides zero-knowledge proof verification of Lean IMT Merkle proofs using Gnark. The circuit verifies that a leaf exists in a Merkle tree with a specific root using the following inputs:
+The `circuit` package provides zero-knowledge proof verification of Lean IMT Merkle proofs using Gnark. It includes both generic proof verification and census-specific verification with address-weight packing.
 
 The circuit uses `github.com/vocdoni/gnark-crypto-primitives/hash/bn254/poseidon` for hashing.
 
-**Public Inputs:**
-- `merkle_root` - The Merkle tree root to verify against
-- `leaf_value` - The leaf value being proved
-
-**Private Inputs (Witness):**
-- `leaf_index` - Packed path bits indicating leaf position (LSB first)
-- `proof_siblings` - Array of sibling nodes for the proof path
-
-### Usage
+### Basic Proof Verification
 
 ```go
 func (myCircuit *MyCircuit) Define(api frontend.API) error {
@@ -237,6 +276,29 @@ func (myCircuit *MyCircuit) Define(api frontend.API) error {
     }
     
     // Assert proof is valid
+    api.AssertIsEqual(isValid, 1)
+    return nil
+}
+```
+
+### Census Proof Verification
+
+```go
+func (votingCircuit *VotingCircuit) Define(api frontend.API) error {
+    // Verify census membership
+    isValid, err := circuit.VerifyCensusProof(
+        api,
+        votingCircuit.CensusRoot,
+        votingCircuit.VoterAddress,
+        votingCircuit.Weight,
+        votingCircuit.Index,
+        votingCircuit.Siblings,
+    )
+    if err != nil {
+        return err
+    }
+    
+    // Assert proof is valid (or use isValid in other logic)
     api.AssertIsEqual(isValid, 1)
     return nil
 }

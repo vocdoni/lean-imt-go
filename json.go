@@ -70,4 +70,3 @@ func Import[N any](hash Hasher[N], nodesJSON string, eq Equal[N], mapFn func(str
 	tree.nodes = nodes
 	return tree, nil
 }
-

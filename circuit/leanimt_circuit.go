@@ -2,6 +2,7 @@ package circuit
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/vocdoni/gnark-crypto-primitives/hash/bn254/poseidon"
@@ -18,7 +19,7 @@ import (
 //
 // Returns:
 //   - frontend.Variable: A boolean variable (0 or 1) indicating proof validity
-//   - error: Any error that occurred during verification
+//   - error: Any error that occurred during compilation
 func VerifyLeanIMTProof(
 	api frontend.API,
 	root frontend.Variable,
@@ -64,4 +65,40 @@ func VerifyLeanIMTProof(
 	// Return 1 if roots match, 0 otherwise
 	isEqual := api.IsZero(api.Sub(currentNode, root))
 	return isEqual, nil
+}
+
+// VerifyCensusProof verifies a census membership proof in-circuit
+// This function packs the address and weight, then verifies the merkle proof
+//
+// Parameters:
+//   - api: The frontend API for constraint operations
+//   - root: The merkle root
+//   - address: The voter's address as big.Int
+//   - weight: The voting weight
+//   - index: The tree index
+//   - siblings: The merkle siblings
+//
+// Returns:
+//   - frontend.Variable: 1 if proof is valid, 0 otherwise
+//   - error: Any error that occurred during compilation
+func VerifyCensusProof(
+	api frontend.API,
+	root frontend.Variable,
+	address frontend.Variable,
+	weight frontend.Variable,
+	index frontend.Variable,
+	siblings []frontend.Variable,
+) (frontend.Variable, error) {
+	// Pack the leaf value in-circuit
+	// packed = (address << 88) | weight
+	shift88 := new(big.Int).Lsh(big.NewInt(1), 88)
+	addressShifted := api.Mul(address, shift88)
+	packedLeaf := api.Add(addressShifted, weight)
+
+	// Verify the merkle proof with the packed leaf
+	isValid, err := VerifyLeanIMTProof(api, root, packedLeaf, index, siblings)
+	if err != nil {
+		return frontend.Variable(0), err
+	}
+	return isValid, nil
 }
