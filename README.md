@@ -16,13 +16,13 @@ The LeanIMT is an optimized binary version of traditional Incremental Merkle Tre
 
 ## 📊 Performance
 
-Our benchmarks demonstrate excellent performance for large-scale applications using Poseidon2 cryptographic hash:
+Our benchmarks demonstrate excellent performance for large-scale applications using iden3 Poseidon cryptographic hash:
 
-- **Creation**: 87K leaves/second with Poseidon2 (10M leaves in ~114 seconds)
-- **Updates**: 221K updates/second (4.5µs average latency)
-- **Concurrency**: 295K concurrent operations/second
-- **Persistence**: 20 seconds for 10M leaf save/load cycle
-- **Memory**: ~19.5GB for 10M leaves with Poseidon2 hashing
+- **Creation**: 74K leaves/second with Poseidon (10M leaves in ~134 seconds)
+- **Updates**: 384K updates/second (2.6µs average latency)
+- **Concurrency**: 412K concurrent operations/second
+- **Persistence**: 21 seconds for 10M leaf save/load cycle
+- **Memory**: Efficient memory usage for large-scale trees (20M leaves supported)
 
 ## 🛠 Installation
 
@@ -118,14 +118,14 @@ if err != nil {
 fmt.Printf("Inserted %d leaves\n", tree.Size())
 ```
 
-### With Poseidon2 Hash (Cryptographic)
+### With Poseidon Hash (Cryptographic)
 
 ```go
 import leanimt "github.com/vocdoni/lean-imt-go"
 
-// Create tree with cryptographic Poseidon2 hash
+// Create tree with cryptographic Poseidon hash
 tree, err := leanimt.New(
-    leanimt.Poseidon2Hasher,  // Cryptographic hash function
+    leanimt.PoseidonHasher,   // Cryptographic hash function
     leanimt.BigIntEqual,      // Equality function
     nil, nil, nil,            // No persistence
 )

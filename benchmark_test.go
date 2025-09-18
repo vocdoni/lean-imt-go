@@ -24,9 +24,9 @@ func BenchmarkLargeTree_20M_Creation(b *testing.B) {
 	benchmarkLargeTreeCreation(b, 20_000_000, bigIntHasher, BigIntEqual)
 }
 
-// BenchmarkLargeTree_10M_Poseidon2_Creation tests creating a 10M leaf tree with Poseidon2
-func BenchmarkLargeTree_10M_Poseidon2_Creation(b *testing.B) {
-	benchmarkLargeTreeCreation(b, 10_000_000, Poseidon2Hasher, BigIntEqual)
+// BenchmarkLargeTree_10M_Poseidon_Creation tests creating a 10M leaf tree with Poseidon
+func BenchmarkLargeTree_10M_Poseidon_Creation(b *testing.B) {
+	benchmarkLargeTreeCreation(b, 10_000_000, PoseidonHasher, BigIntEqual)
 }
 
 // BenchmarkLargeTree_10M_Persistence tests saving and loading a 10M leaf tree
@@ -49,8 +49,8 @@ func BenchmarkInsertMany_SimpleHash_1M(b *testing.B) {
 	benchmarkInsertMany(b, 1_000_000, bigIntHasher, BigIntEqual)
 }
 
-func BenchmarkInsertMany_Poseidon2_1M(b *testing.B) {
-	benchmarkInsertMany(b, 1_000_000, Poseidon2Hasher, BigIntEqual)
+func BenchmarkInsertMany_Poseidon_1M(b *testing.B) {
+	benchmarkInsertMany(b, 1_000_000, PoseidonHasher, BigIntEqual)
 }
 
 func BenchmarkGenerateProof_SimpleHash_1M(b *testing.B) {

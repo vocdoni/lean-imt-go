@@ -8,8 +8,8 @@ echo "1. Testing 20M leaf tree creation with simple hash..."
 go test -v -run=^$ -bench=BenchmarkLargeTree_20M_Creation -benchtime=1x
 
 echo ""
-echo "2. Testing 10M leaf tree creation with Poseidon2 hash..."
-go test -v -run=^$ -bench=BenchmarkLargeTree_10M_Poseidon2_Creation -benchtime=1x
+echo "2. Testing 10M leaf tree creation with Poseidon hash..."
+go test -v -run=^$ -bench=BenchmarkLargeTree_10M_Poseidon_Creation -benchtime=1x
 
 echo ""
 echo "3. Testing 20M leaf tree persistence (save/load)..."
@@ -35,8 +35,8 @@ echo "7. Testing 1M leaf tree creation (for comparison)..."
 go test -v -run=^$ -bench=BenchmarkInsertMany_SimpleHash_1M -benchtime=1x
 
 echo ""
-echo "8. Testing 1M leaf tree with Poseidon2 (for comparison)..."
-go test -v -run=^$ -bench=BenchmarkInsertMany_Poseidon2_1M -benchtime=1x
+echo "8. Testing 1M leaf tree with Poseidon (for comparison)..."
+go test -v -run=^$ -bench=BenchmarkInsertMany_Poseidon_1M -benchtime=1x
 
 echo ""
 echo "=== Benchmarks completed ==="

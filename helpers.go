@@ -3,7 +3,7 @@ package leanimt
 import (
 	"math/big"
 
-	p2 "github.com/vocdoni/lean-imt-go/poseidon2"
+	iden3poseidon "github.com/iden3/go-iden3-crypto/poseidon"
 )
 
 // bigIntHasher is a simple hash function for *big.Int values.
@@ -16,16 +16,13 @@ func bigIntHasher(a, b *big.Int) *big.Int {
 	return out
 }
 
-// Poseidon2Hasher is a cryptographic hash function using Poseidon2.
-func Poseidon2Hasher(a, b *big.Int) *big.Int {
-	out, err := p2.HashFunctionPoseidon2.Hash(
-		p2.HashFunctionPoseidon2.SafeBigInt(a),
-		p2.HashFunctionPoseidon2.SafeBigInt(b),
-	)
+// PoseidonHasher is a cryptographic hash function using iden3 Poseidon.
+func PoseidonHasher(a, b *big.Int) *big.Int {
+	out, err := iden3poseidon.Hash([]*big.Int{a, b})
 	if err != nil {
 		panic(err) // Should not happen with valid inputs
 	}
-	return new(big.Int).SetBytes(out)
+	return out
 }
 
 // BigIntEqual is an equality function for *big.Int values.
