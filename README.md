@@ -4,7 +4,7 @@ This is a Go implementation of the Lean Incremental Merkle Tree, originally deve
 
 The LeanIMT is an optimized binary version of traditional Incremental Merkle Trees (IMT), eliminating the need for zero values and allowing dynamic depth adjustment. Unlike standard IMTs that use zero hashes for incomplete nodes, the LeanIMT directly adopts the left child's value when a node lacks a right counterpart. The tree's depth dynamically adjusts to the count of leaves, enhancing efficiency by reducing the number of required hash calculations.
 
-## 🚀 Features
+## Features
 
 - **High Performance**: Optimized for large-scale applications (tested with 20M+ leaves)
 - **Thread-Safe**: Concurrent read/write operations with RWMutex protection
@@ -13,16 +13,7 @@ The LeanIMT is an optimized binary version of traditional Incremental Merkle Tre
 - **Generic Types**: Type-safe implementation with Go generics
 - **Zero Dependencies**: Core functionality requires no external dependencies
 - **Memory Efficient**: Optimized memory usage for cryptographic operations
-
-## 📊 Performance
-
-Our benchmarks demonstrate excellent performance for large-scale applications using iden3 Poseidon cryptographic hash:
-
-- **Creation**: 74K leaves/second with Poseidon (10M leaves in ~134 seconds)
-- **Updates**: 384K updates/second (2.6µs average latency)
-- **Concurrency**: 412K concurrent operations/second
-- **Persistence**: 21 seconds for 10M leaf save/load cycle
-- **Memory**: Efficient memory usage for large-scale trees (20M leaves supported)
+- **Gnark zk-SNARK Circuit**: Built-in circuit for verifying Merkle proofs in zero-knowledge proofs
 
 ## Installation
 
@@ -216,65 +207,6 @@ if err != nil {
 }
 ```
 
-### Custom Types
-
-```go
-// Define custom hash and equality functions for strings
-func stringHasher(a, b string) string {
-    return fmt.Sprintf("hash(%s,%s)", a, b)
-}
-
-func stringEqual(a, b string) bool {
-    return a == b
-}
-
-// Create tree with custom type
-tree, err := leanimt.New(stringHasher, stringEqual, nil, nil, nil)
-if err != nil {
-    panic(err)
-}
-
-err = tree.Insert("hello")
-if err != nil {
-    panic(err)
-}
-
-err = tree.Insert("world")
-if err != nil {
-    panic(err)
-}
-```
-
-## API Reference
-
-### Core Functions
-
-- `New(hash, eq, encoder, decoder, storage)` - Create a new tree
-- `NewWithPebble(hash, eq, encoder, decoder, path)` - Create tree with persistence
-- `Import(hash, eq, data)` - Import tree from JSON data
-
-### Tree Operations
-
-- `Insert(value)` - Insert a single leaf
-- `InsertMany(values)` - Insert multiple leaves (batch operation)
-- `Update(index, value)` - Update leaf at index
-- `Has(value)` - Check if tree contains value
-- `IndexOf(value)` - Get index of value
-- `Size()` - Get number of leaves
-- `Depth()` - Get tree depth
-- `Root()` - Get tree root
-
-### Proofs
-
-- `GenerateProof(index)` - Generate Merkle proof for leaf
-- `VerifyProof(proof)` - Verify a Merkle proof
-
-### Persistence
-
-- `Export()` - Export tree to JSON
-- `Sync()` - Sync changes to disk (persistent trees)
-- `Close()` - Close the tree and database
-
 ## Gnark Circuit
 
 The `circuit` package provides zero-knowledge proof verification of Lean IMT Merkle proofs using Gnark. The circuit verifies that a leaf exists in a Merkle tree with a specific root using the following inputs:
@@ -293,7 +225,6 @@ The circuit uses `github.com/vocdoni/gnark-crypto-primitives/hash/bn254/poseidon
 
 ```go
 func (myCircuit *MyCircuit) Define(api frontend.API) error {
-    // Verify a Lean IMT proof within your circuit
     isValid, err := circuit.VerifyLeanIMTProof(
         api,
         myCircuit.MerkleRoot,
