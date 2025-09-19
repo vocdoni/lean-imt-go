@@ -4,6 +4,8 @@ This is a Go implementation of the Lean Incremental Merkle Tree, originally deve
 
 The LeanIMT is an optimized binary version of traditional Incremental Merkle Trees (IMT), eliminating the need for zero values and allowing dynamic depth adjustment. Unlike standard IMTs that use zero hashes for incomplete nodes, the LeanIMT directly adopts the left child's value when a node lacks a right counterpart. The tree's depth dynamically adjusts to the count of leaves, enhancing efficiency by reducing the number of required hash calculations.
 
+A compatible Solidity implementation is available at [zk-kit.solidity](https://github.com/zk-kit/zk-kit.solidity/tree/main/packages/lean-imt). Which uses [poseidon-solidity](https://github.com/chancehudson/poseidon-solidity) for hashing, an optimized version of Poseidon consuming ~20k gas.
+
 ## Features
 
 - **High Performance**: Optimized for large-scale applications (tested with 20M+ leaves)
