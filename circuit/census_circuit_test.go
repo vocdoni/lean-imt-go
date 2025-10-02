@@ -10,6 +10,7 @@ import (
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 	"github.com/ethereum/go-ethereum/common"
+	leanimt "github.com/vocdoni/lean-imt-go"
 	"github.com/vocdoni/lean-imt-go/census"
 )
 
@@ -37,11 +38,15 @@ func (circuit *censusProofCircuit) Define(api frontend.API) error {
 func TestVerifyCensusProof(t *testing.T) {
 	// Create a census with test data
 	tempDir := t.TempDir()
-	censusTree, err := census.NewCensusIMTWithPebble(tempDir)
+	censusTree, err := census.NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to create census: %v", err)
 	}
-	defer censusTree.Close()
+	defer func() {
+		if err := censusTree.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
 
 	// Add test addresses
 	addresses := []common.Address{
@@ -113,11 +118,15 @@ func TestVerifyCensusProof(t *testing.T) {
 func TestVerifyCensusProof_LargerCensus(t *testing.T) {
 	// Create a larger census for more comprehensive testing
 	tempDir := t.TempDir()
-	censusTree, err := census.NewCensusIMTWithPebble(tempDir)
+	censusTree, err := census.NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to create census: %v", err)
 	}
-	defer censusTree.Close()
+	defer func() {
+		if err := censusTree.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
 
 	// Add many addresses
 	numAddresses := 16
@@ -182,11 +191,15 @@ func TestVerifyCensusProof_EdgeCases(t *testing.T) {
 	t.Run("single_address_census", func(t *testing.T) {
 		// Test with single address census
 		tempDir := t.TempDir()
-		censusTree, err := census.NewCensusIMTWithPebble(tempDir)
+		censusTree, err := census.NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 		if err != nil {
 			t.Fatalf("Failed to create census: %v", err)
 		}
-		defer censusTree.Close()
+		defer func() {
+			if err := censusTree.Close(); err != nil {
+				t.Errorf("Failed to close census: %v", err)
+			}
+		}()
 
 		addr := common.HexToAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7")
 		weight := big.NewInt(1000)
@@ -223,11 +236,15 @@ func TestVerifyCensusProof_EdgeCases(t *testing.T) {
 	t.Run("max_weight", func(t *testing.T) {
 		// Test with maximum allowed weight (90 bits)
 		tempDir := t.TempDir()
-		censusTree, err := census.NewCensusIMTWithPebble(tempDir)
+		censusTree, err := census.NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 		if err != nil {
 			t.Fatalf("Failed to create census: %v", err)
 		}
-		defer censusTree.Close()
+		defer func() {
+			if err := censusTree.Close(); err != nil {
+				t.Errorf("Failed to close census: %v", err)
+			}
+		}()
 
 		addr := common.HexToAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7")
 		// Max weight: 2^88 - 1 (11 bytes)

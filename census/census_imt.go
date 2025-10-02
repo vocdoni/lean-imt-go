@@ -40,8 +40,8 @@ var (
 )
 
 // NewCensusIMT creates a new census tree with the provided database
-func NewCensusIMT(database db.Database) (*CensusIMT, error) {
-	tree, err := leanimt.New(leanimt.PoseidonHasher, leanimt.BigIntEqual, database, leanimt.BigIntEncoder, leanimt.BigIntDecoder)
+func NewCensusIMT(database db.Database, hasher leanimt.Hasher[*big.Int]) (*CensusIMT, error) {
+	tree, err := leanimt.New(hasher, leanimt.BigIntEqual, database, leanimt.BigIntEncoder, leanimt.BigIntDecoder)
 	if err != nil {
 		return nil, err
 	}
@@ -63,13 +63,13 @@ func NewCensusIMT(database db.Database) (*CensusIMT, error) {
 }
 
 // NewCensusIMTWithPebble creates a census tree with Pebble persistence
-func NewCensusIMTWithPebble(datadir string) (*CensusIMT, error) {
+func NewCensusIMTWithPebble(datadir string, hasher leanimt.Hasher[*big.Int]) (*CensusIMT, error) {
 	database, err := metadb.New(db.TypePebble, datadir)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewCensusIMT(database)
+	return NewCensusIMT(database, hasher)
 }
 
 // Add adds an address with its voting weight to the census

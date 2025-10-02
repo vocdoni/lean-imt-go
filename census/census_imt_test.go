@@ -5,16 +5,21 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	leanimt "github.com/vocdoni/lean-imt-go"
 )
 
 func TestCensusIMT_Basic(t *testing.T) {
 	// Create census with temporary database
 	tempDir := t.TempDir()
-	census, err := NewCensusIMTWithPebble(tempDir)
+	census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to create census: %v", err)
 	}
-	defer census.Close()
+	defer func() {
+		if err := census.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
 
 	// Test empty census
 	if census.Size() != 0 {
@@ -90,11 +95,15 @@ func TestCensusIMT_Basic(t *testing.T) {
 func TestCensusIMT_Proofs(t *testing.T) {
 	// Create census with temporary database
 	tempDir := t.TempDir()
-	census, err := NewCensusIMTWithPebble(tempDir)
+	census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to create census: %v", err)
 	}
-	defer census.Close()
+	defer func() {
+		if err := census.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
 
 	// Add test addresses
 	addresses := []common.Address{
@@ -160,7 +169,7 @@ func TestCensusIMT_Persistence(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create census with persistence
-	census1, err := NewCensusIMTWithPebble(tempDir)
+	census1, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to create persistent census: %v", err)
 	}
@@ -191,11 +200,15 @@ func TestCensusIMT_Persistence(t *testing.T) {
 	}
 
 	// Reopen the census
-	census2, err := NewCensusIMTWithPebble(tempDir)
+	census2, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to reopen persistent census: %v", err)
 	}
-	defer census2.Close()
+	defer func() {
+		if err := census2.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
 
 	// Verify data was persisted
 	if census2.Size() != 2 {
@@ -320,11 +333,15 @@ func TestPackAddressWeight_Panics(t *testing.T) {
 func TestCensusIMT_AddBulk(t *testing.T) {
 	// Create census with temporary database
 	tempDir := t.TempDir()
-	census, err := NewCensusIMTWithPebble(tempDir)
+	census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to create census: %v", err)
 	}
-	defer census.Close()
+	defer func() {
+		if err := census.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
 
 	// Prepare test data
 	addresses := []common.Address{
@@ -389,11 +406,15 @@ func TestCensusIMT_AddBulk(t *testing.T) {
 func TestCensusIMT_AddBulk_EdgeCases(t *testing.T) {
 	t.Run("empty_bulk_add", func(t *testing.T) {
 		tempDir := t.TempDir()
-		census, err := NewCensusIMTWithPebble(tempDir)
+		census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 		if err != nil {
 			t.Fatalf("Failed to create census: %v", err)
 		}
-		defer census.Close()
+		defer func() {
+			if err := census.Close(); err != nil {
+				t.Errorf("Failed to close census: %v", err)
+			}
+		}()
 
 		// Empty bulk add should succeed
 		if err := census.AddBulk([]common.Address{}, []*big.Int{}); err != nil {
@@ -407,11 +428,15 @@ func TestCensusIMT_AddBulk_EdgeCases(t *testing.T) {
 
 	t.Run("mismatched_lengths", func(t *testing.T) {
 		tempDir := t.TempDir()
-		census, err := NewCensusIMTWithPebble(tempDir)
+		census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 		if err != nil {
 			t.Fatalf("Failed to create census: %v", err)
 		}
-		defer census.Close()
+		defer func() {
+			if err := census.Close(); err != nil {
+				t.Errorf("Failed to close census: %v", err)
+			}
+		}()
 
 		addresses := []common.Address{
 			common.HexToAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7"),
@@ -429,11 +454,15 @@ func TestCensusIMT_AddBulk_EdgeCases(t *testing.T) {
 
 	t.Run("duplicate_address_in_bulk", func(t *testing.T) {
 		tempDir := t.TempDir()
-		census, err := NewCensusIMTWithPebble(tempDir)
+		census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 		if err != nil {
 			t.Fatalf("Failed to create census: %v", err)
 		}
-		defer census.Close()
+		defer func() {
+			if err := census.Close(); err != nil {
+				t.Errorf("Failed to close census: %v", err)
+			}
+		}()
 
 		// Add an address first
 		addr := common.HexToAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7")
@@ -458,11 +487,15 @@ func TestCensusIMT_AddBulk_EdgeCases(t *testing.T) {
 
 	t.Run("single_address_bulk", func(t *testing.T) {
 		tempDir := t.TempDir()
-		census, err := NewCensusIMTWithPebble(tempDir)
+		census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 		if err != nil {
 			t.Fatalf("Failed to create census: %v", err)
 		}
-		defer census.Close()
+		defer func() {
+			if err := census.Close(); err != nil {
+				t.Errorf("Failed to close census: %v", err)
+			}
+		}()
 
 		// Bulk add single address
 		addresses := []common.Address{
@@ -488,7 +521,7 @@ func TestCensusIMT_AddBulk_Persistence(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create census and bulk add data
-	census1, err := NewCensusIMTWithPebble(tempDir)
+	census1, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to create census: %v", err)
 	}
@@ -522,11 +555,15 @@ func TestCensusIMT_AddBulk_Persistence(t *testing.T) {
 	}
 
 	// Reopen the census
-	census2, err := NewCensusIMTWithPebble(tempDir)
+	census2, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to reopen census: %v", err)
 	}
-	defer census2.Close()
+	defer func() {
+		if err := census2.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
 
 	// Verify all bulk-added data was persisted
 	if census2.Size() != len(addresses) {
@@ -559,11 +596,15 @@ func TestCensusIMT_AddBulk_Persistence(t *testing.T) {
 
 func TestCensusIMT_AddBulk_Performance(t *testing.T) {
 	tempDir := t.TempDir()
-	census, err := NewCensusIMTWithPebble(tempDir)
+	census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
 	if err != nil {
 		t.Fatalf("Failed to create census: %v", err)
 	}
-	defer census.Close()
+	defer func() {
+		if err := census.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
 
 	// Generate large number of addresses for performance test
 	numAddresses := 1000
