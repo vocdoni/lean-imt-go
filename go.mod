@@ -9,6 +9,7 @@ require (
 	github.com/iden3/go-iden3-crypto v0.0.17
 	github.com/vocdoni/davinci-node v0.0.0-20250915100545-11fc394dd80c
 	github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20250721114051-04061c85ab97
+	golang.org/x/crypto v0.40.0
 )
 
 require (
@@ -59,7 +60,6 @@ require (
 	github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d // indirect
 	go.mongodb.org/mongo-driver v1.12.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/exp v0.0.0-20250717185816-542afb5b7346 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect

@@ -72,8 +72,8 @@ func main() {
     fmt.Printf("Contains 3: %t\n", has)               // true
 
     // Get index of a value
-    index, found := tree.IndexOf(big.NewInt(3))
-    if found {
+    index := tree.IndexOf(big.NewInt(3))
+    if index > -1 {
         fmt.Printf("Index of 3: %d\n", index)         // 1
     }
 
