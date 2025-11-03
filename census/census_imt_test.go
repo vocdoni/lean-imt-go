@@ -287,10 +287,10 @@ func TestPackUnpackAddressWeight(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Pack
-			packed := packAddressWeight(tc.address, tc.weight)
+			packed := PackAddressWeight(tc.address, tc.weight)
 
 			// Unpack
-			unpackedAddr, unpackedWeight := unpackAddressWeight(packed)
+			unpackedAddr, unpackedWeight := UnpackAddressWeight(packed)
 
 			// Verify
 			if tc.address.Cmp(unpackedAddr) != 0 {
@@ -314,7 +314,7 @@ func TestPackAddressWeight_Panics(t *testing.T) {
 		}()
 
 		largeAddr := new(big.Int).Lsh(big.NewInt(1), 161) // 2^161
-		packAddressWeight(largeAddr, big.NewInt(1))
+		PackAddressWeight(largeAddr, big.NewInt(1))
 	})
 
 	// Test weight too large
@@ -326,7 +326,7 @@ func TestPackAddressWeight_Panics(t *testing.T) {
 		}()
 
 		largeWeight := new(big.Int).Lsh(big.NewInt(1), 97) // 2^97
-		packAddressWeight(big.NewInt(1), largeWeight)
+		PackAddressWeight(big.NewInt(1), largeWeight)
 	})
 }
 

@@ -7,7 +7,6 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/consensys/gnark/test"
 	"github.com/ethereum/go-ethereum/common"
 	leanimt "github.com/vocdoni/lean-imt-go"
@@ -16,11 +15,11 @@ import (
 
 // censusProofCircuit for testing census proof verification
 type censusProofCircuit struct {
-	Root     frontend.Variable   `gnark:"root,public"`
-	Address  frontend.Variable   `gnark:"address,public"`
-	Weight   frontend.Variable   `gnark:"weight"`
-	Index    frontend.Variable   `gnark:"index"`
-	Siblings []frontend.Variable `gnark:"siblings"`
+	Root     frontend.Variable                 `gnark:"root,public"`
+	Address  frontend.Variable                 `gnark:"address,public"`
+	Weight   frontend.Variable                 `gnark:"weight"`
+	Index    frontend.Variable                 `gnark:"index"`
+	Siblings [MaxCensusDepth]frontend.Variable `gnark:"siblings"`
 }
 
 func (circuit *censusProofCircuit) Define(api frontend.API) error {
@@ -78,13 +77,8 @@ func TestVerifyCensusProof(t *testing.T) {
 			}
 
 			// Create circuit with appropriate depth
-			maxDepth := len(proof.Siblings)
-			if maxDepth == 0 {
-				maxDepth = 1 // Minimum for circuit compilation
-			}
-
 			circuit := &censusProofCircuit{
-				Siblings: make([]frontend.Variable, maxDepth),
+				Siblings: [MaxCensusDepth]frontend.Variable{},
 			}
 
 			// Create witness
@@ -93,7 +87,7 @@ func TestVerifyCensusProof(t *testing.T) {
 				Address:  proof.Address.Big(),
 				Weight:   proof.Weight,
 				Index:    proof.Index,
-				Siblings: make([]frontend.Variable, maxDepth),
+				Siblings: [MaxCensusDepth]frontend.Variable{},
 			}
 
 			// Fill siblings array
@@ -101,7 +95,7 @@ func TestVerifyCensusProof(t *testing.T) {
 				witness.Siblings[j] = sibling
 			}
 			// Pad remaining siblings with zeros
-			for j := len(proof.Siblings); j < maxDepth; j++ {
+			for j := len(proof.Siblings); j < MaxCensusDepth; j++ {
 				witness.Siblings[j] = big.NewInt(0)
 			}
 
@@ -155,18 +149,13 @@ func TestVerifyCensusProof_LargerCensus(t *testing.T) {
 				t.Fatalf("Failed to generate proof for index %d: %v", idx, err)
 			}
 
-			// Create circuit with sufficient depth
-			maxDepth := 8 // Should be enough for 16 addresses
-			circuit := &censusProofCircuit{
-				Siblings: make([]frontend.Variable, maxDepth),
-			}
-
+			circuit := &censusProofCircuit{}
 			witness := &censusProofCircuit{
 				Root:     proof.Root,
 				Address:  proof.Address.Big(),
 				Weight:   proof.Weight,
 				Index:    proof.Index,
-				Siblings: make([]frontend.Variable, maxDepth),
+				Siblings: [MaxCensusDepth]frontend.Variable{},
 			}
 
 			// Fill siblings
@@ -174,7 +163,7 @@ func TestVerifyCensusProof_LargerCensus(t *testing.T) {
 				witness.Siblings[i] = sibling
 			}
 			// Pad remaining
-			for i := len(proof.Siblings); i < maxDepth; i++ {
+			for i := len(proof.Siblings); i < MaxCensusDepth; i++ {
 				witness.Siblings[i] = big.NewInt(0)
 			}
 
@@ -213,18 +202,18 @@ func TestVerifyCensusProof_EdgeCases(t *testing.T) {
 			t.Fatalf("Failed to generate proof: %v", err)
 		}
 
-		// Single address should have no siblings
-		maxDepth := 1 // Minimum for circuit
-		circuit := &censusProofCircuit{
-			Siblings: make([]frontend.Variable, maxDepth),
+		siblings := [MaxCensusDepth]frontend.Variable{}
+		for i := range MaxCensusDepth {
+			siblings[i] = big.NewInt(0) // Padded
 		}
 
+		circuit := &censusProofCircuit{}
 		witness := &censusProofCircuit{
 			Root:     proof.Root,
 			Address:  proof.Address.Big(),
 			Weight:   proof.Weight,
 			Index:    proof.Index,
-			Siblings: []frontend.Variable{big.NewInt(0)}, // Padded
+			Siblings: siblings, // Padded
 		}
 
 		assert := test.NewAssert(t)
@@ -259,16 +248,18 @@ func TestVerifyCensusProof_EdgeCases(t *testing.T) {
 			t.Fatalf("Failed to generate proof: %v", err)
 		}
 
-		circuit := &censusProofCircuit{
-			Siblings: make([]frontend.Variable, 1),
+		siblings := [MaxCensusDepth]frontend.Variable{}
+		for i := range MaxCensusDepth {
+			siblings[i] = big.NewInt(0) // Padded
 		}
 
+		circuit := &censusProofCircuit{}
 		witness := &censusProofCircuit{
 			Root:     proof.Root,
 			Address:  proof.Address.Big(),
 			Weight:   proof.Weight,
 			Index:    proof.Index,
-			Siblings: []frontend.Variable{big.NewInt(0)},
+			Siblings: siblings,
 		}
 
 		assert := test.NewAssert(t)
@@ -276,44 +267,4 @@ func TestVerifyCensusProof_EdgeCases(t *testing.T) {
 
 		t.Log("✅ Maximum weight census proof verified")
 	})
-}
-
-func TestCensusProofConstraints(t *testing.T) {
-	// Test constraint counting for census proofs
-	depths := []int{3, 5, 8}
-
-	for _, depth := range depths {
-		t.Run("depth_"+string(rune('0'+depth)), func(t *testing.T) {
-			circuit := &censusProofCircuit{
-				Siblings: make([]frontend.Variable, depth),
-			}
-
-			// Compile to count constraints
-			ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit)
-			if err != nil {
-				t.Fatalf("Failed to compile circuit: %v", err)
-			}
-
-			constraints := ccs.GetNbConstraints()
-			internal, secret, public := ccs.GetNbVariables()
-			totalVars := internal + secret + public
-
-			t.Logf("Census Proof Circuit (depth %d): %d constraints, %d variables",
-				depth, constraints, totalVars)
-
-			// Expected constraints:
-			// - Merkle proof: ~247 * depth
-			// - Packing: ~2 constraints
-			// - Range checks: 256 constraints (160 + 96)
-			// Total: ~247*depth + 258
-
-			expectedMin := 247*depth + 200 // Allow some variance
-			expectedMax := 247*depth + 300
-
-			if constraints < expectedMin || constraints > expectedMax {
-				t.Logf("Warning: Constraint count %d outside expected range [%d, %d]",
-					constraints, expectedMin, expectedMax)
-			}
-		})
-	}
 }
