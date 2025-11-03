@@ -4,9 +4,9 @@ import (
 	"math/big"
 )
 
-// packAddressWeight packs address (160 bits) and weight (88 bits) into single big.Int
+// PackAddressWeight packs address (160 bits) and weight (88 bits) into single big.Int
 // Layout: [address (160 bits)] [weight (88 bits)] = 248 bits total (fits safely in BN254 field ~254 bits)
-func packAddressWeight(address, weight *big.Int) *big.Int {
+func PackAddressWeight(address, weight *big.Int) *big.Int {
 	if address.BitLen() > 160 {
 		panic("address exceeds 160 bits")
 	}
@@ -19,9 +19,9 @@ func packAddressWeight(address, weight *big.Int) *big.Int {
 	return packed.Or(packed, weight)
 }
 
-// unpackAddressWeight unpacks a composite value into address and weight
+// UnpackAddressWeight unpacks a composite value into address and weight
 // This is used internally for verification and debugging
-func unpackAddressWeight(packed *big.Int) (address, weight *big.Int) {
+func UnpackAddressWeight(packed *big.Int) (address, weight *big.Int) {
 	// Create mask for lower 88 bits
 	weightMask := new(big.Int).Sub(
 		new(big.Int).Lsh(big.NewInt(1), 88),

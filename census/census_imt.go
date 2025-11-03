@@ -83,7 +83,7 @@ func (c *CensusIMT) Add(address common.Address, weight *big.Int) error {
 	}
 
 	// Pack address and weight
-	packed := packAddressWeight(address.Big(), weight)
+	packed := PackAddressWeight(address.Big(), weight)
 
 	// Insert into tree
 	if err := c.tree.Insert(packed); err != nil {
@@ -134,7 +134,7 @@ func (c *CensusIMT) AddBulk(addresses []common.Address, weights []*big.Int) erro
 
 	for i, address := range addresses {
 		hexAddrs[i] = address.Hex()
-		packedValues[i] = packAddressWeight(address.Big(), weights[i])
+		packedValues[i] = PackAddressWeight(address.Big(), weights[i])
 	}
 
 	// Insert all values into tree
