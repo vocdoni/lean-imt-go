@@ -645,3 +645,62 @@ func TestCensusIMT_AddBulk_Performance(t *testing.T) {
 
 	t.Logf("✅ Successfully bulk added %d addresses", numAddresses)
 }
+
+func TestCensusIMT_DumpImport(t *testing.T) {
+	tempDir := t.TempDir()
+	census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
+	if err != nil {
+		t.Fatalf("Failed to create census: %v", err)
+	}
+	defer func() {
+		if err := census.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
+
+	// Generate large number of addresses for performance test
+	numAddresses := 100
+	addresses := make([]common.Address, numAddresses)
+	weights := make([]*big.Int, numAddresses)
+
+	for i := 0; i < numAddresses; i++ {
+		// Generate deterministic addresses
+		addrBytes := make([]byte, 20)
+		addrBytes[0] = byte(i >> 8)
+		addrBytes[1] = byte(i & 0xff)
+		addresses[i] = common.BytesToAddress(addrBytes)
+		weights[i] = big.NewInt(int64(i + 1))
+	}
+
+	// Bulk add all addresses
+	if err := census.AddBulk(addresses, weights); err != nil {
+		t.Fatalf("Failed to bulk add %d addresses: %v", numAddresses, err)
+	}
+
+	// Dump census
+	dump, err := census.Dump()
+	if err != nil {
+		t.Fatalf("Failed to dump census: %v", err)
+	}
+
+	// Create new census for import
+	importCensus, err := NewCensusIMTWithPebble(t.TempDir(), leanimt.PoseidonHasher)
+	if err != nil {
+		t.Fatalf("Failed to create import census: %v", err)
+	}
+	defer func() {
+		if err := importCensus.Close(); err != nil {
+			t.Errorf("Failed to close import census: %v", err)
+		}
+	}()
+	// Import dump
+	if err := importCensus.Import(dump); err != nil {
+		t.Fatalf("Failed to import census dump: %v", err)
+	}
+
+	// Verify imported census matches original
+	if importCensus.Size() != census.Size() {
+		t.Errorf("Imported census size mismatch: expected %d, got %d",
+			census.Size(), importCensus.Size())
+	}
+}
