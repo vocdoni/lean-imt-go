@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/vocdoni/davinci-node/db"
@@ -25,11 +27,27 @@ type CensusIMT struct {
 
 // CensusProof contains all data needed for census membership verification
 type CensusProof struct {
-	Root     *big.Int       // Merkle root
-	Address  common.Address // The address being proved
-	Weight   *big.Int       // The voting weight
-	Index    uint64         // Tree index (as packed bits)
-	Siblings []*big.Int     // Merkle siblings
+	Root     *big.Int   // Merkle root
+	Siblings []*big.Int // Merkle siblings
+	CensusParticipant
+}
+
+// CensusParticipant includes the information of a census member, it can be used to
+// export or import census data, but also as part of a CensusProof
+type CensusParticipant struct {
+	Index   uint64         `json:"index"`   // Tree index (as packed bits)
+	Address common.Address `json:"address"` // The address being proved
+	Weight  *big.Int       `json:"weight"`  // The voting weight
+}
+
+// CensusDump represents a full export of the census state. It can be used to
+// import/export census data between nodes serialized as JSON.
+type CensusDump struct {
+	Root              *big.Int            `json:"root"`
+	Timestamp         time.Time           `json:"timestamp"`
+	TotalParticipants int                 `json:"totalEntries"`
+	TotalWeight       *big.Int            `json:"totalWeight"`
+	Participants      []CensusParticipant `json:"participants"`
 }
 
 // Errors
@@ -37,6 +55,9 @@ var (
 	ErrAddressAlreadyExists = errors.New("address already exists in census")
 	ErrAddressNotFound      = errors.New("address not found in census")
 	ErrDataCorruption       = errors.New("census data corruption detected")
+	ErrEmptyCensus          = errors.New("census is empty")
+	ErrNotEmptyCensus       = errors.New("census is not empty")
+	ErrBadCensusDump        = errors.New("invalid census dump")
 )
 
 // NewCensusIMT creates a new census tree with the provided database
@@ -189,10 +210,12 @@ func (c *CensusIMT) GenerateProof(address common.Address) (*CensusProof, error) 
 	}
 
 	return &CensusProof{
-		Root:     treeProof.Root,
-		Address:  address,
-		Weight:   new(big.Int).Set(weight),
-		Index:    treeProof.Index,
+		Root: treeProof.Root,
+		CensusParticipant: CensusParticipant{
+			Index:   treeProof.Index,
+			Address: address,
+			Weight:  new(big.Int).Set(weight),
+		},
 		Siblings: treeProof.Siblings,
 	}, nil
 }
@@ -226,6 +249,74 @@ func (c *CensusIMT) Root() (*big.Int, bool) {
 // Size returns the number of census members
 func (c *CensusIMT) Size() int {
 	return c.tree.Size()
+}
+
+// Dump exports the entire census state
+func (c *CensusIMT) Dump() (*CensusDump, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Get the current root
+	root, ok := c.tree.Root()
+	if !ok {
+		return nil, ErrEmptyCensus
+	}
+
+	// Iterate over indexes and address to build entries
+	entries := []CensusParticipant{}
+	totalWeight := big.NewInt(0)
+	for index, hexAddr := range c.indexToAddress {
+		weight := c.weights[hexAddr]
+		addr := common.HexToAddress(hexAddr)
+		entries = append(entries, CensusParticipant{
+			Index:   uint64(index),
+			Address: addr,
+			Weight:  weight,
+		})
+		totalWeight.Add(totalWeight, weight)
+	}
+
+	// Return the dump with the current timestamp
+	return &CensusDump{
+		Root:              root,
+		Participants:      entries,
+		TotalWeight:       totalWeight,
+		TotalParticipants: len(entries),
+		Timestamp:         time.Now(),
+	}, nil
+}
+
+func (c *CensusIMT) Import(dump *CensusDump) error {
+	// Check if the current tree is empty
+	if c.Size() != 0 {
+		return ErrNotEmptyCensus
+	}
+
+	// Sort entries by index to ensure correct insertion order
+	sortedEntries := make([]CensusParticipant, len(dump.Participants))
+	copy(sortedEntries, dump.Participants)
+	slices.SortFunc(sortedEntries, censusEntrySortFunc)
+
+	// Add all entries from the dump
+	addresses := make([]common.Address, len(dump.Participants))
+	weights := make([]*big.Int, len(dump.Participants))
+	for i, entry := range sortedEntries {
+		addresses[i] = entry.Address
+		weights[i] = entry.Weight
+	}
+	if err := c.AddBulk(addresses, weights); err != nil {
+		return err
+	}
+
+	// Verify the root matches
+	root, ok := c.tree.Root()
+	if !ok {
+		return fmt.Errorf("%w: imported census is empty", ErrEmptyCensus)
+	}
+	if root.Cmp(dump.Root) != 0 {
+		return fmt.Errorf("%w: imported root does not match", ErrBadCensusDump)
+	}
+	return nil
 }
 
 // persistEntry saves a single entry atomically
@@ -307,7 +398,7 @@ func (c *CensusIMT) Load() error {
 	censusSize := decodeInt(sizeBytes)
 
 	// Load all reverse mappings to rebuild indices
-	for i := 0; i < censusSize; i++ {
+	for i := range censusSize {
 		// Get address for this index
 		addrBytes, err := c.db.Get([]byte("idx:rev:" + intToString(i)))
 		if err != nil {
@@ -399,4 +490,16 @@ func intToString(x int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+// censusEntrySortFunc helper function returns -1, 0, or 1 based on the
+// comparison of two CensusEntry by Index. It is used for sorting CensusEntry
+// slices.
+func censusEntrySortFunc(a, b CensusParticipant) int {
+	if a.Index < b.Index {
+		return -1
+	} else if a.Index > b.Index {
+		return 1
+	}
+	return 0
 }
