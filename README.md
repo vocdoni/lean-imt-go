@@ -256,6 +256,38 @@ fmt.Printf("Census size: %d\n", census.Size())
 fmt.Printf("Root: %s\n", proof.Root.String())
 ```
 
+### Export and Pagination
+
+The census supports exporting entries:
+
+```go
+// Export entire census (streams data, memory efficient)
+reader := census.Dump()
+decoder := json.NewDecoder(reader)
+
+for decoder.More() {
+    var entry census.CensusEntry
+    if err := decoder.Decode(&entry); err != nil {
+        panic(err)
+    }
+    fmt.Printf("%s: %s\n", entry.Address, entry.Weight)
+}
+
+// Paginated export (useful for APIs)
+page1 := census.DumpRange(0, 100)    // First 100 entries
+page2 := census.DumpRange(100, 100)  // Next 100 entries
+
+// Process paginated data
+decoder = json.NewDecoder(page1)
+for decoder.More() {
+    var entry census.CensusEntry
+    if err := decoder.Decode(&entry); err != nil {
+        panic(err)
+    }
+    // Process entry...
+}
+```
+
 ## Gnark Circuit
 
 The `circuit` package provides zero-knowledge proof verification of Lean IMT Merkle proofs using Gnark. It includes both generic proof verification and census-specific verification with address-weight packing.

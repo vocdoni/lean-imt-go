@@ -1,8 +1,10 @@
 package census
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"sync"
 
@@ -30,6 +32,12 @@ type CensusProof struct {
 	Weight   *big.Int       // The voting weight
 	Index    uint64         // Tree index (as packed bits)
 	Siblings []*big.Int     // Merkle siblings
+}
+
+// CensusEntry represents a single census entry for export operations
+type CensusEntry struct {
+	Address string `json:"address"`
+	Weight  string `json:"weight"`
 }
 
 // Errors
@@ -226,6 +234,143 @@ func (c *CensusIMT) Root() (*big.Int, bool) {
 // Size returns the number of census members
 func (c *CensusIMT) Size() int {
 	return c.tree.Size()
+}
+
+// Dump returns an io.Reader that streams all census entries in JSON Lines format.
+// Each line contains a JSON object with "address" and "weight" fields.
+// The reader is safe to use concurrently with other census operations.
+// For large censuses (millions of entries), consider using DumpRange for pagination.
+func (c *CensusIMT) Dump() io.Reader {
+	return c.DumpRange(0, -1)
+}
+
+// DumpRange returns an io.Reader that streams census entries in the specified range.
+// Entries are returned in JSON Lines format (one JSON object per line).
+// Parameters:
+//   - offset: starting index (0-based), negative values are treated as 0
+//   - limit: maximum number of entries to return, -1 means unlimited
+//
+// The method automatically optimizes based on range size:
+//   - Small ranges (≤10000): single lock, snapshot entire range
+//   - Large ranges: batched streaming with brief locks per batch
+//
+// Returns entries from [offset, min(offset+limit, size)).
+// The reader is safe to use concurrently with other census operations.
+func (c *CensusIMT) DumpRange(offset, limit int) io.Reader {
+	pr, pw := io.Pipe()
+
+	go func() {
+		defer func() {
+			_ = pw.Close()
+		}()
+
+		c.mu.RLock()
+		size := c.tree.Size()
+		c.mu.RUnlock()
+
+		if offset < 0 {
+			offset = 0
+		}
+		if offset >= size {
+			return
+		}
+
+		end := size
+		if limit >= 0 {
+			end = offset + limit
+			if end > size {
+				end = size
+			}
+		}
+
+		rangeSize := end - offset
+		const batchThreshold = 10000
+
+		if limit >= 0 && rangeSize <= batchThreshold {
+			c.dumpRangeSingleLock(pw, offset, end)
+		} else {
+			c.dumpRangeBatched(pw, offset, end)
+		}
+	}()
+
+	return pr
+}
+
+// dumpRangeSingleLock fetches the entire range under a single lock.
+// Used for small bounded ranges to minimize lock overhead.
+func (c *CensusIMT) dumpRangeSingleLock(pw *io.PipeWriter, start, end int) {
+	c.mu.RLock()
+	entries := make([]CensusEntry, 0, end-start)
+	for i := start; i < end; i++ {
+		addr, exists := c.indexToAddress[i]
+		if !exists {
+			c.mu.RUnlock()
+			pw.CloseWithError(fmt.Errorf("data corruption: missing index %d", i))
+			return
+		}
+		weight, exists := c.weights[addr]
+		if !exists {
+			c.mu.RUnlock()
+			pw.CloseWithError(fmt.Errorf("data corruption: missing weight for %s", addr))
+			return
+		}
+		entries = append(entries, CensusEntry{
+			Address: addr,
+			Weight:  weight.String(),
+		})
+	}
+	c.mu.RUnlock()
+
+	encoder := json.NewEncoder(pw)
+	for i := range entries {
+		if err := encoder.Encode(&entries[i]); err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+	}
+}
+
+// dumpRangeBatched streams entries in batches with brief locks per batch.
+// Used for large or unlimited ranges to minimize lock contention.
+func (c *CensusIMT) dumpRangeBatched(pw *io.PipeWriter, start, end int) {
+	const batchSize = 1000
+	encoder := json.NewEncoder(pw)
+
+	for i := start; i < end; i += batchSize {
+		batchEnd := i + batchSize
+		if batchEnd > end {
+			batchEnd = end
+		}
+
+		c.mu.RLock()
+		batch := make([]CensusEntry, 0, batchEnd-i)
+		for j := i; j < batchEnd; j++ {
+			addr, exists := c.indexToAddress[j]
+			if !exists {
+				c.mu.RUnlock()
+				pw.CloseWithError(fmt.Errorf("data corruption: missing index %d", j))
+				return
+			}
+			weight, exists := c.weights[addr]
+			if !exists {
+				c.mu.RUnlock()
+				pw.CloseWithError(fmt.Errorf("data corruption: missing weight for %s", addr))
+				return
+			}
+			batch = append(batch, CensusEntry{
+				Address: addr,
+				Weight:  weight.String(),
+			})
+		}
+		c.mu.RUnlock()
+
+		for k := range batch {
+			if err := encoder.Encode(&batch[k]); err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
+	}
 }
 
 // persistEntry saves a single entry atomically
