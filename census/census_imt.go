@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/vocdoni/davinci-node/db"
@@ -18,6 +20,7 @@ import (
 // It stores address+weight pairs and provides efficient address-based lookups
 type CensusIMT struct {
 	tree           *leanimt.LeanIMT[*big.Int]
+	hasher         leanimt.Hasher[*big.Int]
 	addressIndex   map[string]int      // hex address -> tree index
 	indexToAddress map[int]string      // tree index -> hex address
 	weights        map[string]*big.Int // hex address -> weight
@@ -27,17 +30,27 @@ type CensusIMT struct {
 
 // CensusProof contains all data needed for census membership verification
 type CensusProof struct {
-	Root     *big.Int       // Merkle root
-	Address  common.Address // The address being proved
-	Weight   *big.Int       // The voting weight
-	Index    uint64         // Tree index (as packed bits)
-	Siblings []*big.Int     // Merkle siblings
+	Root     *big.Int   // Merkle root
+	Siblings []*big.Int // Merkle siblings
+	CensusParticipant
 }
 
-// CensusEntry represents a single census entry for export operations
-type CensusEntry struct {
-	Address string `json:"address"`
-	Weight  string `json:"weight"`
+// CensusParticipant includes the information of a census member, it can be used to
+// export or import census data, but also as part of a CensusProof
+type CensusParticipant struct {
+	Index   uint64         `json:"index"`
+	Address common.Address `json:"address"`
+	Weight  *big.Int       `json:"weight"`
+}
+
+// CensusDump represents a full export of the census state. It can be used to
+// import/export census data between nodes serialized as JSON.
+type CensusDump struct {
+	Root              *big.Int            `json:"root"`
+	Timestamp         time.Time           `json:"timestamp"`
+	TotalParticipants int                 `json:"totalEntries"`
+	TotalWeight       *big.Int            `json:"totalWeight"`
+	Participants      []CensusParticipant `json:"participants"`
 }
 
 // Errors
@@ -45,6 +58,8 @@ var (
 	ErrAddressAlreadyExists = errors.New("address already exists in census")
 	ErrAddressNotFound      = errors.New("address not found in census")
 	ErrDataCorruption       = errors.New("census data corruption detected")
+	ErrEmptyCensus          = errors.New("census is empty")
+	ErrBadCensusDump        = errors.New("invalid census dump")
 )
 
 // NewCensusIMT creates a new census tree with the provided database
@@ -56,6 +71,7 @@ func NewCensusIMT(database db.Database, hasher leanimt.Hasher[*big.Int]) (*Censu
 
 	census := &CensusIMT{
 		tree:           tree,
+		hasher:         hasher,
 		addressIndex:   make(map[string]int),
 		indexToAddress: make(map[int]string),
 		weights:        make(map[string]*big.Int),
@@ -197,10 +213,12 @@ func (c *CensusIMT) GenerateProof(address common.Address) (*CensusProof, error) 
 	}
 
 	return &CensusProof{
-		Root:     treeProof.Root,
-		Address:  address,
-		Weight:   new(big.Int).Set(weight),
-		Index:    treeProof.Index,
+		Root: treeProof.Root,
+		CensusParticipant: CensusParticipant{
+			Index:   treeProof.Index,
+			Address: address,
+			Weight:  new(big.Int).Set(weight),
+		},
 		Siblings: treeProof.Siblings,
 	}, nil
 }
@@ -300,24 +318,31 @@ func (c *CensusIMT) DumpRange(offset, limit int) io.Reader {
 // Used for small bounded ranges to minimize lock overhead.
 func (c *CensusIMT) dumpRangeSingleLock(pw *io.PipeWriter, start, end int) {
 	c.mu.RLock()
-	entries := make([]CensusEntry, 0, end-start)
+	entries := make([]CensusParticipant, 0, end-start)
 	for i := start; i < end; i++ {
 		addr, exists := c.indexToAddress[i]
+		var participant CensusParticipant
 		if !exists {
-			c.mu.RUnlock()
-			pw.CloseWithError(fmt.Errorf("data corruption: missing index %d", i))
-			return
+			// Empty entry (gap in tree)
+			participant = CensusParticipant{
+				Index:   uint64(i),
+				Address: common.Address{},
+				Weight:  big.NewInt(0),
+			}
+		} else {
+			weight, exists := c.weights[addr]
+			if !exists {
+				c.mu.RUnlock()
+				pw.CloseWithError(fmt.Errorf("data corruption: missing weight for %s", addr))
+				return
+			}
+			participant = CensusParticipant{
+				Index:   uint64(i),
+				Address: common.HexToAddress(addr),
+				Weight:  weight,
+			}
 		}
-		weight, exists := c.weights[addr]
-		if !exists {
-			c.mu.RUnlock()
-			pw.CloseWithError(fmt.Errorf("data corruption: missing weight for %s", addr))
-			return
-		}
-		entries = append(entries, CensusEntry{
-			Address: addr,
-			Weight:  weight.String(),
-		})
+		entries = append(entries, participant)
 	}
 	c.mu.RUnlock()
 
@@ -343,24 +368,31 @@ func (c *CensusIMT) dumpRangeBatched(pw *io.PipeWriter, start, end int) {
 		}
 
 		c.mu.RLock()
-		batch := make([]CensusEntry, 0, batchEnd-i)
+		batch := make([]CensusParticipant, 0, batchEnd-i)
 		for j := i; j < batchEnd; j++ {
 			addr, exists := c.indexToAddress[j]
+			var participant CensusParticipant
 			if !exists {
-				c.mu.RUnlock()
-				pw.CloseWithError(fmt.Errorf("data corruption: missing index %d", j))
-				return
+				// Empty entry (gap in tree)
+				participant = CensusParticipant{
+					Index:   uint64(j),
+					Address: common.Address{},
+					Weight:  big.NewInt(0),
+				}
+			} else {
+				weight, exists := c.weights[addr]
+				if !exists {
+					c.mu.RUnlock()
+					pw.CloseWithError(fmt.Errorf("data corruption: missing weight for %s", addr))
+					return
+				}
+				participant = CensusParticipant{
+					Index:   uint64(j),
+					Address: common.HexToAddress(addr),
+					Weight:  weight,
+				}
 			}
-			weight, exists := c.weights[addr]
-			if !exists {
-				c.mu.RUnlock()
-				pw.CloseWithError(fmt.Errorf("data corruption: missing weight for %s", addr))
-				return
-			}
-			batch = append(batch, CensusEntry{
-				Address: addr,
-				Weight:  weight.String(),
-			})
+			batch = append(batch, participant)
 		}
 		c.mu.RUnlock()
 
@@ -452,7 +484,7 @@ func (c *CensusIMT) Load() error {
 	censusSize := decodeInt(sizeBytes)
 
 	// Load all reverse mappings to rebuild indices
-	for i := 0; i < censusSize; i++ {
+	for i := range censusSize {
 		// Get address for this index
 		addrBytes, err := c.db.Get([]byte("idx:rev:" + intToString(i)))
 		if err != nil {
@@ -503,6 +535,271 @@ func (c *CensusIMT) Close() error {
 	}
 
 	return nil
+}
+
+// DumpAll exports the entire census state as a CensusDump structure.
+// This includes all participants (including empty entries), metadata, and the merkle root.
+// For large censuses, consider using Dump() for streaming export instead.
+func (c *CensusIMT) DumpAll() (*CensusDump, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	root, ok := c.tree.Root()
+	if !ok {
+		return nil, ErrEmptyCensus
+	}
+
+	size := c.tree.Size()
+	participants := make([]CensusParticipant, 0, size)
+	totalWeight := big.NewInt(0)
+	nonEmptyCount := 0
+
+	for i := range size {
+		addr, exists := c.indexToAddress[i]
+		if !exists {
+			// Empty entry
+			participants = append(participants, CensusParticipant{
+				Index:   uint64(i),
+				Address: common.Address{},
+				Weight:  big.NewInt(0),
+			})
+		} else {
+			weight := c.weights[addr]
+			participants = append(participants, CensusParticipant{
+				Index:   uint64(i),
+				Address: common.HexToAddress(addr),
+				Weight:  weight,
+			})
+			totalWeight.Add(totalWeight, weight)
+			nonEmptyCount++
+		}
+	}
+
+	return &CensusDump{
+		Root:              root,
+		Participants:      participants,
+		TotalWeight:       totalWeight,
+		TotalParticipants: nonEmptyCount,
+		Timestamp:         time.Now(),
+	}, nil
+}
+
+// ImportAll imports a complete census dump, replacing any existing census data.
+// The import validates that the resulting merkle root matches the dump's root.
+// This method will clear any existing census data before importing.
+func (c *CensusIMT) ImportAll(dump *CensusDump) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Clear existing data
+	c.addressIndex = make(map[string]int)
+	c.indexToAddress = make(map[int]string)
+	c.weights = make(map[string]*big.Int)
+
+	// Recreate tree
+	var err error
+	c.tree, err = leanimt.New(c.hasher, leanimt.BigIntEqual, c.db, leanimt.BigIntEncoder, leanimt.BigIntDecoder)
+	if err != nil {
+		return err
+	}
+
+	// Sort participants by index to ensure correct order
+	participants := make([]CensusParticipant, len(dump.Participants))
+	copy(participants, dump.Participants)
+	slices.SortFunc(participants, func(a, b CensusParticipant) int {
+		if a.Index < b.Index {
+			return -1
+		} else if a.Index > b.Index {
+			return 1
+		}
+		return 0
+	})
+
+	// Track expected index for validation
+	expectedIndex := uint64(0)
+	weights := []*big.Int{}
+	hexAddrs := []string{}
+
+	for _, p := range participants {
+		// Fill gaps with empty entries if needed
+		for expectedIndex < p.Index {
+			if err := c.tree.Insert(big.NewInt(0)); err != nil {
+				return fmt.Errorf("failed to insert empty entry at index %d: %w", expectedIndex, err)
+			}
+			expectedIndex++
+		}
+
+		// Check if this is an empty entry
+		isZeroAddress := p.Address == (common.Address{})
+		if isZeroAddress {
+			// Insert zero value for empty entry
+			if err := c.tree.Insert(big.NewInt(0)); err != nil {
+				return fmt.Errorf("failed to insert empty entry at index %d: %w", p.Index, err)
+			}
+		} else {
+			// Insert actual participant
+			packed := PackAddressWeight(p.Address.Big(), p.Weight)
+			if err := c.tree.Insert(packed); err != nil {
+				return fmt.Errorf("failed to insert participant at index %d: %w", p.Index, err)
+			}
+
+			// Track for maps and persistence
+			hexAddr := p.Address.Hex()
+			c.addressIndex[hexAddr] = int(p.Index)
+			c.indexToAddress[int(p.Index)] = hexAddr
+			c.weights[hexAddr] = new(big.Int).Set(p.Weight)
+
+			hexAddrs = append(hexAddrs, hexAddr)
+			weights = append(weights, p.Weight)
+		}
+		expectedIndex++
+	}
+
+	// Verify root matches
+	root, ok := c.tree.Root()
+	if !ok {
+		return fmt.Errorf("%w: imported census is empty", ErrEmptyCensus)
+	}
+	if root.Cmp(dump.Root) != 0 {
+		return fmt.Errorf("%w: imported root does not match (expected %s, got %s)",
+			ErrBadCensusDump, dump.Root.String(), root.String())
+	}
+
+	// Persist if database exists
+	if c.db != nil {
+		if err := c.persistImportedData(hexAddrs, weights); err != nil {
+			return fmt.Errorf("failed to persist imported data: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Import imports census data from a JSON Lines stream (io.Reader).
+// Each line should contain a CensusParticipant JSON object.
+// This method will replace any existing census data.
+// Note: Unlike ImportAll, this method does not verify the merkle root since
+// the stream format doesn't include it. Use ImportAll for root verification.
+func (c *CensusIMT) Import(reader io.Reader) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Clear existing data
+	c.addressIndex = make(map[string]int)
+	c.indexToAddress = make(map[int]string)
+	c.weights = make(map[string]*big.Int)
+
+	// Recreate tree
+	var err error
+	c.tree, err = leanimt.New(c.hasher, leanimt.BigIntEqual, c.db, leanimt.BigIntEncoder, leanimt.BigIntDecoder)
+	if err != nil {
+		return err
+	}
+
+	// Read and sort participants
+	decoder := json.NewDecoder(reader)
+	participants := []CensusParticipant{}
+
+	for decoder.More() {
+		var p CensusParticipant
+		if err := decoder.Decode(&p); err != nil {
+			return fmt.Errorf("failed to decode participant: %w", err)
+		}
+		participants = append(participants, p)
+	}
+
+	if len(participants) == 0 {
+		return ErrEmptyCensus
+	}
+
+	// Sort by index
+	slices.SortFunc(participants, func(a, b CensusParticipant) int {
+		if a.Index < b.Index {
+			return -1
+		} else if a.Index > b.Index {
+			return 1
+		}
+		return 0
+	})
+
+	// Insert participants
+	expectedIndex := uint64(0)
+	hexAddrs := []string{}
+	weights := []*big.Int{}
+
+	for _, p := range participants {
+		// Fill gaps with empty entries if needed
+		for expectedIndex < p.Index {
+			if err := c.tree.Insert(big.NewInt(0)); err != nil {
+				return fmt.Errorf("failed to insert empty entry at index %d: %w", expectedIndex, err)
+			}
+			expectedIndex++
+		}
+
+		// Check if this is an empty entry
+		isZeroAddress := p.Address == (common.Address{})
+		if isZeroAddress {
+			if err := c.tree.Insert(big.NewInt(0)); err != nil {
+				return fmt.Errorf("failed to insert empty entry at index %d: %w", p.Index, err)
+			}
+		} else {
+			packed := PackAddressWeight(p.Address.Big(), p.Weight)
+			if err := c.tree.Insert(packed); err != nil {
+				return fmt.Errorf("failed to insert participant at index %d: %w", p.Index, err)
+			}
+
+			hexAddr := p.Address.Hex()
+			c.addressIndex[hexAddr] = int(p.Index)
+			c.indexToAddress[int(p.Index)] = hexAddr
+			c.weights[hexAddr] = new(big.Int).Set(p.Weight)
+
+			hexAddrs = append(hexAddrs, hexAddr)
+			weights = append(weights, new(big.Int).Set(p.Weight))
+		}
+		expectedIndex++
+	}
+
+	// Persist if database exists
+	if c.db != nil {
+		if err := c.persistImportedData(hexAddrs, weights); err != nil {
+			return fmt.Errorf("failed to persist imported data: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// persistImportedData saves all imported data in a single transaction
+func (c *CensusIMT) persistImportedData(hexAddrs []string, weights []*big.Int) error {
+	tx := c.db.WriteTx()
+	defer tx.Discard()
+
+	// Save all entries
+	for i, hexAddr := range hexAddrs {
+		index := c.addressIndex[hexAddr]
+
+		// Save index mapping
+		if err := tx.Set([]byte("idx:addr:"+hexAddr), encodeInt(index)); err != nil {
+			return err
+		}
+
+		// Save reverse mapping
+		if err := tx.Set([]byte("idx:rev:"+intToString(index)), []byte(hexAddr)); err != nil {
+			return err
+		}
+
+		// Save weight
+		if err := tx.Set([]byte("weight:"+hexAddr), weights[i].Bytes()); err != nil {
+			return err
+		}
+	}
+
+	// Update census size
+	if err := tx.Set([]byte("meta:census_size"), encodeInt(c.tree.Size())); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // Helper functions for integer encoding/decoding

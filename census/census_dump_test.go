@@ -64,13 +64,13 @@ func TestCensusIMT_Dump_Small(t *testing.T) {
 	reader := census.Dump()
 	decoder := json.NewDecoder(reader)
 
-	entries := make(map[string]string)
+	entries := make(map[string]*CensusParticipant)
 	for decoder.More() {
-		var entry CensusEntry
+		var entry CensusParticipant
 		if err := decoder.Decode(&entry); err != nil {
 			t.Fatalf("Failed to decode entry: %v", err)
 		}
-		entries[entry.Address] = entry.Weight
+		entries[entry.Address.Hex()] = &entry
 	}
 
 	if len(entries) != len(addresses) {
@@ -79,14 +79,16 @@ func TestCensusIMT_Dump_Small(t *testing.T) {
 
 	for i, addr := range addresses {
 		hexAddr := addr.Hex()
-		weight, exists := entries[hexAddr]
+		entry, exists := entries[hexAddr]
 		if !exists {
 			t.Errorf("Address %s not found in dump", hexAddr)
 			continue
 		}
-		expectedWeight := weights[i].String()
-		if weight != expectedWeight {
-			t.Errorf("Weight mismatch for %s: expected %s, got %s", hexAddr, expectedWeight, weight)
+		if entry.Weight.Cmp(weights[i]) != 0 {
+			t.Errorf("Weight mismatch for %s: expected %s, got %s", hexAddr, weights[i].String(), entry.Weight.String())
+		}
+		if entry.Index != uint64(i) {
+			t.Errorf("Index mismatch for %s: expected %d, got %d", hexAddr, i, entry.Index)
 		}
 	}
 }
@@ -124,20 +126,20 @@ func TestCensusIMT_DumpRange_SmallRange(t *testing.T) {
 
 	count := 0
 	for decoder.More() {
-		var entry CensusEntry
+		var entry CensusParticipant
 		if err := decoder.Decode(&entry); err != nil {
 			t.Fatalf("Failed to decode entry: %v", err)
 		}
 		count++
 
-		expectedAddr := addresses[10+count-1].Hex()
+		expectedAddr := addresses[10+count-1]
 		if entry.Address != expectedAddr {
-			t.Errorf("Entry %d: expected address %s, got %s", count, expectedAddr, entry.Address)
+			t.Errorf("Entry %d: expected address %s, got %s", count, expectedAddr.Hex(), entry.Address.Hex())
 		}
 
-		expectedWeight := weights[10+count-1].String()
-		if entry.Weight != expectedWeight {
-			t.Errorf("Entry %d: expected weight %s, got %s", count, expectedWeight, entry.Weight)
+		expectedWeight := weights[10+count-1]
+		if entry.Weight.Cmp(expectedWeight) != 0 {
+			t.Errorf("Entry %d: expected weight %s, got %s", count, expectedWeight.String(), entry.Weight.String())
 		}
 	}
 
@@ -179,7 +181,7 @@ func TestCensusIMT_DumpRange_LargeRange(t *testing.T) {
 
 	count := 0
 	for decoder.More() {
-		var entry CensusEntry
+		var entry CensusParticipant
 		if err := decoder.Decode(&entry); err != nil {
 			t.Fatalf("Failed to decode entry: %v", err)
 		}
@@ -220,7 +222,7 @@ func TestCensusIMT_DumpRange_Pagination(t *testing.T) {
 	}
 
 	pageSize := 50
-	allEntries := make([]CensusEntry, 0, numEntries)
+	allEntries := make([]CensusParticipant, 0, numEntries)
 
 	for page := 0; page < 5; page++ {
 		offset := page * pageSize
@@ -229,7 +231,7 @@ func TestCensusIMT_DumpRange_Pagination(t *testing.T) {
 
 		pageEntries := 0
 		for decoder.More() {
-			var entry CensusEntry
+			var entry CensusParticipant
 			if err := decoder.Decode(&entry); err != nil {
 				t.Fatalf("Failed to decode entry on page %d: %v", page, err)
 			}
@@ -247,9 +249,9 @@ func TestCensusIMT_DumpRange_Pagination(t *testing.T) {
 	}
 
 	for i, entry := range allEntries {
-		expectedAddr := addresses[i].Hex()
+		expectedAddr := addresses[i]
 		if entry.Address != expectedAddr {
-			t.Errorf("Entry %d: expected address %s, got %s", i, expectedAddr, entry.Address)
+			t.Errorf("Entry %d: expected address %s, got %s", i, expectedAddr.Hex(), entry.Address.Hex())
 		}
 	}
 }
@@ -286,7 +288,7 @@ func TestCensusIMT_DumpRange_EdgeCases(t *testing.T) {
 		decoder := json.NewDecoder(reader)
 		count := 0
 		for decoder.More() {
-			var entry CensusEntry
+			var entry CensusParticipant
 			if err := decoder.Decode(&entry); err != nil {
 				t.Fatalf("Failed to decode: %v", err)
 			}
@@ -310,7 +312,7 @@ func TestCensusIMT_DumpRange_EdgeCases(t *testing.T) {
 		decoder := json.NewDecoder(reader)
 		count := 0
 		for decoder.More() {
-			var entry CensusEntry
+			var entry CensusParticipant
 			if err := decoder.Decode(&entry); err != nil {
 				t.Fatalf("Failed to decode: %v", err)
 			}
@@ -326,7 +328,7 @@ func TestCensusIMT_DumpRange_EdgeCases(t *testing.T) {
 		decoder := json.NewDecoder(reader)
 		count := 0
 		for decoder.More() {
-			var entry CensusEntry
+			var entry CensusParticipant
 			if err := decoder.Decode(&entry); err != nil {
 				t.Fatalf("Failed to decode: %v", err)
 			}
@@ -383,7 +385,7 @@ func TestCensusIMT_Dump_Concurrent(t *testing.T) {
 		decoder := json.NewDecoder(reader)
 		count := 0
 		for decoder.More() {
-			var entry CensusEntry
+			var entry CensusParticipant
 			if err := decoder.Decode(&entry); err != nil {
 				t.Errorf("Failed to decode during concurrent dump: %v", err)
 				return
@@ -449,18 +451,18 @@ func TestCensusIMT_Dump_DataIntegrity(t *testing.T) {
 	reader := census.Dump()
 	decoder := json.NewDecoder(reader)
 
-	dumpedEntries := make(map[string]string)
+	dumpedEntries := make(map[string]*CensusParticipant)
 	for decoder.More() {
-		var entry CensusEntry
+		var entry CensusParticipant
 		if err := decoder.Decode(&entry); err != nil {
 			t.Fatalf("Failed to decode entry: %v", err)
 		}
-		dumpedEntries[entry.Address] = entry.Weight
+		dumpedEntries[entry.Address.Hex()] = &entry
 	}
 
 	for i, addr := range addresses {
 		hexAddr := addr.Hex()
-		dumpedWeight, exists := dumpedEntries[hexAddr]
+		entry, exists := dumpedEntries[hexAddr]
 		if !exists {
 			t.Errorf("Address %s not found in dump", hexAddr)
 			continue
@@ -472,12 +474,12 @@ func TestCensusIMT_Dump_DataIntegrity(t *testing.T) {
 			continue
 		}
 
-		if dumpedWeight != storedWeight.String() {
-			t.Errorf("Weight mismatch for %s: dumped=%s, stored=%s", hexAddr, dumpedWeight, storedWeight.String())
+		if entry.Weight.Cmp(storedWeight) != 0 {
+			t.Errorf("Weight mismatch for %s: dumped=%s, stored=%s", hexAddr, entry.Weight.String(), storedWeight.String())
 		}
 
-		if dumpedWeight != weights[i].String() {
-			t.Errorf("Weight mismatch for %s: dumped=%s, expected=%s", hexAddr, dumpedWeight, weights[i].String())
+		if entry.Weight.Cmp(weights[i]) != 0 {
+			t.Errorf("Weight mismatch for %s: dumped=%s, expected=%s", hexAddr, entry.Weight.String(), weights[i].String())
 		}
 	}
 }
@@ -527,7 +529,7 @@ func TestCensusIMT_Dump_LargeScale(t *testing.T) {
 
 	count := 0
 	for decoder.More() {
-		var entry CensusEntry
+		var entry CensusParticipant
 		if err := decoder.Decode(&entry); err != nil {
 			t.Fatalf("Failed to decode entry %d: %v", count, err)
 		}
@@ -566,16 +568,16 @@ func TestCensusIMT_DumpRange_JSONFormat(t *testing.T) {
 		t.Fatalf("Failed to read dump: %v", err)
 	}
 
-	var entry CensusEntry
+	var entry CensusParticipant
 	if err := json.Unmarshal(data, &entry); err != nil {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
 
-	if entry.Address != addr.Hex() {
-		t.Errorf("Address mismatch: expected %s, got %s", addr.Hex(), entry.Address)
+	if entry.Address != addr {
+		t.Errorf("Address mismatch: expected %s, got %s", addr.Hex(), entry.Address.Hex())
 	}
 
-	if entry.Weight != weight.String() {
-		t.Errorf("Weight mismatch: expected %s, got %s", weight.String(), entry.Weight)
+	if entry.Weight.Cmp(weight) != 0 {
+		t.Errorf("Weight mismatch: expected %s, got %s", weight.String(), entry.Weight.String())
 	}
 }
