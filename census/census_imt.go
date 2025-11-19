@@ -53,6 +53,19 @@ type CensusDump struct {
 	Participants      []CensusParticipant `json:"participants"`
 }
 
+// isEmptyParticipant returns true when the dump entry represents an empty slot.
+// We need to consider both zero address and zero weight to avoid treating valid
+// zero-address entries as empty during ImportAll/Import.
+func isEmptyParticipant(p CensusParticipant) bool {
+	if p.Address != (common.Address{}) {
+		return false
+	}
+	if p.Weight == nil {
+		return true
+	}
+	return p.Weight.Sign() == 0
+}
+
 // Errors
 var (
 	ErrAddressAlreadyExists = errors.New("address already exists in census")
@@ -295,10 +308,7 @@ func (c *CensusIMT) DumpRange(offset, limit int) io.Reader {
 
 		end := size
 		if limit >= 0 {
-			end = offset + limit
-			if end > size {
-				end = size
-			}
+			end = min(offset + limit, size)
 		}
 
 		rangeSize := end - offset
@@ -362,10 +372,7 @@ func (c *CensusIMT) dumpRangeBatched(pw *io.PipeWriter, start, end int) {
 	encoder := json.NewEncoder(pw)
 
 	for i := start; i < end; i += batchSize {
-		batchEnd := i + batchSize
-		if batchEnd > end {
-			batchEnd = end
-		}
+		batchEnd := min(i+batchSize, end)
 
 		c.mu.RLock()
 		batch := make([]CensusParticipant, 0, batchEnd-i)
@@ -603,17 +610,10 @@ func (c *CensusIMT) ImportAll(dump *CensusDump) error {
 		return err
 	}
 
-	// Sort participants by index to ensure correct order
+	// Sort entries by index to ensure correct insertion order
 	participants := make([]CensusParticipant, len(dump.Participants))
 	copy(participants, dump.Participants)
-	slices.SortFunc(participants, func(a, b CensusParticipant) int {
-		if a.Index < b.Index {
-			return -1
-		} else if a.Index > b.Index {
-			return 1
-		}
-		return 0
-	})
+	slices.SortFunc(participants, censusEntrySortFunc)
 
 	// Track expected index for validation
 	expectedIndex := uint64(0)
@@ -630,8 +630,7 @@ func (c *CensusIMT) ImportAll(dump *CensusDump) error {
 		}
 
 		// Check if this is an empty entry
-		isZeroAddress := p.Address == (common.Address{})
-		if isZeroAddress {
+		if isEmptyParticipant(p) {
 			// Insert zero value for empty entry
 			if err := c.tree.Insert(big.NewInt(0)); err != nil {
 				return fmt.Errorf("failed to insert empty entry at index %d: %w", p.Index, err)
@@ -680,7 +679,7 @@ func (c *CensusIMT) ImportAll(dump *CensusDump) error {
 // This method will replace any existing census data.
 // Note: Unlike ImportAll, this method does not verify the merkle root since
 // the stream format doesn't include it. Use ImportAll for root verification.
-func (c *CensusIMT) Import(reader io.Reader) error {
+func (c *CensusIMT) Import(root *big.Int, reader io.Reader) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -713,14 +712,7 @@ func (c *CensusIMT) Import(reader io.Reader) error {
 	}
 
 	// Sort by index
-	slices.SortFunc(participants, func(a, b CensusParticipant) int {
-		if a.Index < b.Index {
-			return -1
-		} else if a.Index > b.Index {
-			return 1
-		}
-		return 0
-	})
+	slices.SortFunc(participants, censusEntrySortFunc)
 
 	// Insert participants
 	expectedIndex := uint64(0)
@@ -737,8 +729,7 @@ func (c *CensusIMT) Import(reader io.Reader) error {
 		}
 
 		// Check if this is an empty entry
-		isZeroAddress := p.Address == (common.Address{})
-		if isZeroAddress {
+		if isEmptyParticipant(p) {
 			if err := c.tree.Insert(big.NewInt(0)); err != nil {
 				return fmt.Errorf("failed to insert empty entry at index %d: %w", p.Index, err)
 			}
@@ -757,6 +748,16 @@ func (c *CensusIMT) Import(reader io.Reader) error {
 			weights = append(weights, new(big.Int).Set(p.Weight))
 		}
 		expectedIndex++
+	}
+
+	// Verify root matches
+	newRoot, ok := c.tree.Root()
+	if !ok {
+		return fmt.Errorf("%w: imported census is empty", ErrEmptyCensus)
+	}
+	if root.Cmp(newRoot) != 0 {
+		return fmt.Errorf("%w: imported root does not match (expected %s, got %s)",
+			ErrBadCensusDump, root.String(), newRoot.String())
 	}
 
 	// Persist if database exists
@@ -841,4 +842,16 @@ func intToString(x int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+// censusEntrySortFunc helper function returns -1, 0, or 1 based on the
+// comparison of two CensusEntry by Index. It is used for sorting CensusEntry
+// slices.
+func censusEntrySortFunc(a, b CensusParticipant) int {
+	if a.Index < b.Index {
+		return -1
+	} else if a.Index > b.Index {
+		return 1
+	}
+	return 0
 }

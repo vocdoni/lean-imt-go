@@ -1,6 +1,8 @@
 package census
 
 import (
+	"bytes"
+	"io"
 	"math/big"
 	"testing"
 
@@ -611,7 +613,7 @@ func TestCensusIMT_AddBulk_Performance(t *testing.T) {
 	addresses := make([]common.Address, numAddresses)
 	weights := make([]*big.Int, numAddresses)
 
-	for i := 0; i < numAddresses; i++ {
+	for i := range numAddresses {
 		// Generate deterministic addresses
 		addrBytes := make([]byte, 20)
 		addrBytes[0] = byte(i >> 8)
@@ -644,4 +646,206 @@ func TestCensusIMT_AddBulk_Performance(t *testing.T) {
 	}
 
 	t.Logf("✅ Successfully bulk added %d addresses", numAddresses)
+}
+
+func TestCensusIMT_DumpAllImportAll(t *testing.T) {
+	tempDir := t.TempDir()
+	census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
+	if err != nil {
+		t.Fatalf("Failed to create census: %v", err)
+	}
+	defer func() {
+		if err := census.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
+
+	// Generate large number of addresses for performance test
+	numAddresses := 100
+	addresses := make([]common.Address, numAddresses)
+	weights := make([]*big.Int, numAddresses)
+
+	for i := range numAddresses {
+		// Generate deterministic addresses
+		addrBytes := make([]byte, 20)
+		addrBytes[0] = byte(i >> 8)
+		addrBytes[1] = byte(i & 0xff)
+		addresses[i] = common.BytesToAddress(addrBytes)
+		weights[i] = big.NewInt(int64(i + 1))
+	}
+
+	populateCensusWithGaps(t, census, addresses, weights)
+
+	if census.Size() <= numAddresses {
+		t.Fatalf("Expected census to contain empty leaves, got size %d for %d addresses",
+			census.Size(), numAddresses)
+	}
+
+	// Dump census
+	dump, err := census.DumpAll()
+	if err != nil {
+		t.Fatalf("Failed to dump census: %v", err)
+	}
+
+	emptyCount := 0
+	for _, participant := range dump.Participants {
+		if participant.Address == (common.Address{}) && (participant.Weight == nil || participant.Weight.Sign() == 0) {
+			emptyCount++
+		}
+	}
+	if emptyCount == 0 {
+		t.Fatal("DumpAll should include empty leaves when present")
+	}
+
+	// Create new census for import
+	importCensus, err := NewCensusIMTWithPebble(t.TempDir(), leanimt.PoseidonHasher)
+	if err != nil {
+		t.Fatalf("Failed to create import census: %v", err)
+	}
+	defer func() {
+		if err := importCensus.Close(); err != nil {
+			t.Errorf("Failed to close import census: %v", err)
+		}
+	}()
+	// Import dump
+	if err := importCensus.ImportAll(dump); err != nil {
+		t.Fatalf("Failed to import census dump: %v", err)
+	}
+
+	// Verify imported census matches original
+	if importCensus.Size() != census.Size() {
+		t.Errorf("Imported census size mismatch: expected %d, got %d",
+			census.Size(), importCensus.Size())
+	}
+}
+
+func TestCensusIMT_DumpImport(t *testing.T) {
+	tempDir := t.TempDir()
+	census, err := NewCensusIMTWithPebble(tempDir, leanimt.PoseidonHasher)
+	if err != nil {
+		t.Fatalf("Failed to create census: %v", err)
+	}
+	defer func() {
+		if err := census.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
+		}
+	}()
+
+	// Generate large number of addresses for performance test
+	numAddresses := 100
+	addresses := make([]common.Address, numAddresses)
+	weights := make([]*big.Int, numAddresses)
+
+	for i := range numAddresses {
+		// Generate deterministic addresses
+		addrBytes := make([]byte, 20)
+		addrBytes[0] = byte(i >> 8)
+		addrBytes[1] = byte(i & 0xff)
+		addresses[i] = common.BytesToAddress(addrBytes)
+		weights[i] = big.NewInt(int64(i + 1))
+	}
+
+	populateCensusWithGaps(t, census, addresses, weights)
+
+	if census.Size() <= numAddresses {
+		t.Fatalf("Expected census to contain empty leaves, got size %d for %d addresses",
+			census.Size(), numAddresses)
+	}
+
+	root, ok := census.Root()
+	if !ok {
+		t.Fatal("Expected census root before dump")
+	}
+
+	dumpReader := census.Dump()
+	dumpData, err := io.ReadAll(dumpReader)
+	if err != nil {
+		t.Fatalf("Failed to read census dump: %v", err)
+	}
+	if len(dumpData) == 0 {
+		t.Fatal("Dump reader returned no data")
+	}
+
+	importCensus, err := NewCensusIMTWithPebble(t.TempDir(), leanimt.PoseidonHasher)
+	if err != nil {
+		t.Fatalf("Failed to create import census: %v", err)
+	}
+	defer func() {
+		if err := importCensus.Close(); err != nil {
+			t.Errorf("Failed to close import census: %v", err)
+		}
+	}()
+
+	if err := importCensus.Import(root, bytes.NewReader(dumpData)); err != nil {
+		t.Fatalf("Failed to import dump stream: %v", err)
+	}
+
+	if !bytes.Contains(dumpData, []byte("\"address\":\"0x0000000000000000000000000000000000000000\"")) {
+		t.Fatal("Dump stream should contain entries for empty leaves")
+	}
+
+	if importCensus.Size() != census.Size() {
+		t.Fatalf("Imported census size mismatch: expected %d, got %d", census.Size(), importCensus.Size())
+	}
+
+	for i, addr := range addresses {
+		weight, exists := importCensus.GetWeight(addr)
+		if !exists {
+			t.Fatalf("Imported census missing address %d", i)
+		}
+		if weight.Cmp(weights[i]) != 0 {
+			t.Fatalf("Weight mismatch for imported address %d: expected %s, got %s", i, weights[i], weight)
+		}
+	}
+
+	importRoot, ok := importCensus.Root()
+	if !ok {
+		t.Fatal("Imported census does not have a root")
+	}
+	if root.Cmp(importRoot) != 0 {
+		t.Fatalf("Imported root mismatch: expected %s, got %s", root.String(), importRoot.String())
+	}
+}
+
+func populateCensusWithGaps(t *testing.T, census *CensusIMT, addresses []common.Address, weights []*big.Int) {
+	t.Helper()
+
+	if len(addresses) != len(weights) {
+		t.Fatalf("addresses and weights length mismatch: %d vs %d", len(addresses), len(weights))
+	}
+
+	insertEmptyLeaves(t, census, 3)
+
+	for i := range addresses {
+		if i > 0 && i%25 == 0 {
+			insertEmptyLeaves(t, census, (i%3)+1)
+		}
+
+		if err := census.Add(addresses[i], weights[i]); err != nil {
+			t.Fatalf("Failed to add address %d: %v", i, err)
+		}
+
+		if i%18 == 7 {
+			insertEmptyLeaves(t, census, 1)
+		}
+	}
+
+	insertEmptyLeaves(t, census, 4)
+}
+
+func insertEmptyLeaves(t *testing.T, census *CensusIMT, count int) {
+	t.Helper()
+
+	if count <= 0 {
+		return
+	}
+
+	census.mu.Lock()
+	defer census.mu.Unlock()
+
+	for range count {
+		if err := census.tree.Insert(big.NewInt(0)); err != nil {
+			t.Fatalf("Failed to insert empty leaf: %v", err)
+		}
+	}
 }
