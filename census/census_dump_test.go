@@ -624,7 +624,11 @@ func TestImportAllClearsPersistedTreeState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to reopen census: %v", err)
 	}
-	defer c2.Close()
+	defer func() {
+		if err := c2.Close(); err != nil {
+			t.Errorf("close failed: %v", err)
+		}
+	}()
 
 	if err := c2.ImportAll(dump); err != nil {
 		t.Fatalf("import failed: %v", err)
