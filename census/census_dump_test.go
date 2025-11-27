@@ -2,6 +2,7 @@ package census
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"math/big"
 	"sync"
@@ -579,5 +580,64 @@ func TestCensusIMT_DumpRange_JSONFormat(t *testing.T) {
 
 	if entry.Weight.Cmp(weight) != 0 {
 		t.Errorf("Weight mismatch: expected %s, got %s", weight.String(), entry.Weight.String())
+	}
+}
+
+// Test that importing a dump on top of an existing persisted census does not
+// append to previously stored leaves (the regression that produced a different
+// root). It uses the same Pebble store across two CensusIMT instances to mimic
+// reusing the database between runs.
+func TestImportAllClearsPersistedTreeState(t *testing.T) {
+	dir := t.TempDir()
+
+	c1, err := NewCensusIMTWithPebble(dir, leanimt.SHA256Hasher)
+	if err != nil {
+		t.Fatalf("failed to create census: %v", err)
+	}
+
+	addrs := []common.Address{
+		common.HexToAddress(fmt.Sprintf("%040x", 1)),
+		common.HexToAddress(fmt.Sprintf("%040x", 2)),
+		common.HexToAddress(fmt.Sprintf("%040x", 3)),
+	}
+	weights := []*big.Int{big.NewInt(10), big.NewInt(20), big.NewInt(30)}
+
+	for i, addr := range addrs {
+		if err := c1.Add(addr, weights[i]); err != nil {
+			t.Fatalf("add participant %d failed: %v", i, err)
+		}
+	}
+
+	dump, err := c1.DumpAll()
+	if err != nil {
+		t.Fatalf("dump failed: %v", err)
+	}
+	if err := c1.Sync(); err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+	if err := c1.Close(); err != nil {
+		t.Fatalf("close failed: %v", err)
+	}
+
+	// Re-open the same persistent store and import the dump.
+	c2, err := NewCensusIMTWithPebble(dir, leanimt.SHA256Hasher)
+	if err != nil {
+		t.Fatalf("failed to reopen census: %v", err)
+	}
+	defer c2.Close()
+
+	if err := c2.ImportAll(dump); err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	root, ok := c2.Root()
+	if !ok {
+		t.Fatalf("imported census has no root")
+	}
+	if root.Cmp(dump.Root) != 0 {
+		t.Fatalf("root mismatch after import: got %s, want %s", root, dump.Root)
+	}
+	if got, want := c2.Size(), len(dump.Participants); got != want {
+		t.Fatalf("imported census size mismatch: got %d, want %d", got, want)
 	}
 }

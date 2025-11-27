@@ -308,7 +308,7 @@ func (c *CensusIMT) DumpRange(offset, limit int) io.Reader {
 
 		end := size
 		if limit >= 0 {
-			end = min(offset + limit, size)
+			end = min(offset+limit, size)
 		}
 
 		rangeSize := end - offset
@@ -598,6 +598,11 @@ func (c *CensusIMT) ImportAll(dump *CensusDump) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Reset state to prevent conflicts
+	if err := c.resetPersistentState(); err != nil {
+		return err
+	}
+
 	// Clear existing data
 	c.addressIndex = make(map[string]int)
 	c.indexToAddress = make(map[int]string)
@@ -682,6 +687,11 @@ func (c *CensusIMT) ImportAll(dump *CensusDump) error {
 func (c *CensusIMT) Import(root *big.Int, reader io.Reader) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Reset state to prevent conflicts
+	if err := c.resetPersistentState(); err != nil {
+		return err
+	}
 
 	// Clear existing data
 	c.addressIndex = make(map[string]int)
@@ -798,6 +808,66 @@ func (c *CensusIMT) persistImportedData(hexAddrs []string, weights []*big.Int) e
 	// Update census size
 	if err := tx.Set([]byte("meta:census_size"), encodeInt(c.tree.Size())); err != nil {
 		return err
+	}
+
+	return tx.Commit()
+}
+
+// resetPersistentState removes any previously persisted census and tree data so imports
+// start from a clean slate. Without this, a persisted tree would be loaded by
+// leanimt.New and new leaves would be appended after the old ones, yielding a
+// different root even if the imported participants are identical.
+func (c *CensusIMT) resetPersistentState() error {
+	if c.db == nil {
+		return nil
+	}
+
+	tx := c.db.WriteTx()
+	defer tx.Discard()
+
+	// Remove tree leaves using the current in-memory size when available.
+	treeSize := 0
+	if c.tree != nil {
+		treeSize = c.tree.Size()
+	} else {
+		if sizeBytes, err := c.db.Get([]byte("meta:size")); err == nil {
+			treeSize = decodeInt(sizeBytes)
+		} else if err != db.ErrKeyNotFound {
+			return err
+		}
+	}
+
+	for i := 0; i < treeSize; i++ {
+		if err := tx.Delete([]byte("leaf:" + intToString(i))); err != nil && err != db.ErrKeyNotFound {
+			return err
+		}
+	}
+
+	// Clear tree and census metadata.
+	metaKeys := [][]byte{
+		[]byte("meta:size"),
+		[]byte("meta:version"),
+		[]byte("meta:census_size"),
+	}
+	for _, key := range metaKeys {
+		if err := tx.Delete(key); err != nil && err != db.ErrKeyNotFound {
+			return err
+		}
+	}
+
+	// Clear index and weight entries we know about from the current census.
+	for addr := range c.addressIndex {
+		if err := tx.Delete([]byte("idx:addr:" + addr)); err != nil && err != db.ErrKeyNotFound {
+			return err
+		}
+		if err := tx.Delete([]byte("weight:" + addr)); err != nil && err != db.ErrKeyNotFound {
+			return err
+		}
+	}
+	for idx := range c.indexToAddress {
+		if err := tx.Delete([]byte("idx:rev:" + intToString(idx))); err != nil && err != db.ErrKeyNotFound {
+			return err
+		}
 	}
 
 	return tx.Commit()
