@@ -200,6 +200,35 @@ func (c *CensusIMT) AddBulk(addresses []common.Address, weights []*big.Int) erro
 	return nil
 }
 
+// Update updates the voting weight for an existing address in the census. If
+// the address does not exist, ErrAddressNotFound is returned.
+func (c *CensusIMT) Update(address common.Address, newWeight *big.Int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Look up index
+	hexAddr := address.Hex()
+	index, exists := c.addressIndex[hexAddr]
+	// If not found, return error
+	if !exists {
+		return ErrAddressNotFound
+	}
+	// Pack address and new weight
+	packed := PackAddressWeight(address.Big(), newWeight)
+	// Update tree at index
+	if err := c.tree.Update(index, packed); err != nil {
+		return err
+	}
+	// Update in-memory weight
+	c.weights[hexAddr] = new(big.Int).Set(newWeight)
+	// Persist updated weight if database exists
+	if c.db != nil {
+		if err := c.persistEntry(hexAddr, index, newWeight); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GenerateProof generates a census proof for an address
 func (c *CensusIMT) GenerateProof(address common.Address) (*CensusProof, error) {
 	c.mu.RLock()
