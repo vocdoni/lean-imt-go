@@ -793,6 +793,115 @@ func (c *CensusIMT) Import(root *big.Int, reader io.Reader) error {
 	return nil
 }
 
+// CensusEvent represents a single weight change event fetched from the
+// GraphQL endpoint. It contains the account address, previous weight, and
+// new weight.
+type CensusEvent struct {
+	Address    common.Address
+	PrevWeight *big.Int
+	NewWeight  *big.Int
+}
+
+type treeOp int
+
+const (
+	treeOpInsert treeOp = iota // insert leaf
+	treeOpDelete               // delete leaf
+	treeOpUpdate               // update leaf
+	treeOpNoOp                 // no operation
+)
+
+// treeOp determines the type of tree operation based on the previous and new
+// weights in the event:
+//   - Insert: previous weight is 0, new weight > 0
+//   - Delete: previous weight > 0, new weight is 0
+//   - Update: previous weight > 0, new weight > 0
+//
+// If both weights are 0, it returns NoOp.
+func (e CensusEvent) treeOp() treeOp {
+	newWeight := e.NewWeight.Int64()
+	prevWeight := e.PrevWeight.Int64()
+
+	switch {
+	case prevWeight == 0 && newWeight > 0:
+		return treeOpInsert
+	case prevWeight > 0 && newWeight == 0:
+		return treeOpDelete
+	case prevWeight > 0:
+		return treeOpUpdate
+	default:
+		return treeOpNoOp
+	}
+}
+
+// ImportEvents imports census changes from a list of CensusEvent, applying
+// inserts, updates, and deletions as specified. The final tree root after
+// applying all events must match the provided root.
+//
+// This method resets any existing census data before applying events.
+func (c *CensusIMT) ImportEvents(root *big.Int, events []CensusEvent) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Reset state to prevent conflicts
+	if err := c.resetPersistentState(); err != nil {
+		return err
+	}
+
+	// Clear existing data
+	c.addressIndex = make(map[string]int)
+	c.indexToAddress = make(map[int]string)
+	c.weights = make(map[string]*big.Int)
+
+	// Recreate tree
+	var err error
+	c.tree, err = leanimt.New(c.hasher, leanimt.BigIntEqual, c.db, leanimt.BigIntEncoder, leanimt.BigIntDecoder)
+	if err != nil {
+		return err
+	}
+
+	for _, event := range events {
+		oldLeaf := PackAddressWeight(event.Address.Big(), event.PrevWeight)
+		newLeaf := PackAddressWeight(event.Address.Big(), event.NewWeight)
+		oldIndex := c.tree.IndexOf(oldLeaf)
+
+		switch event.treeOp() {
+		case treeOpInsert:
+			if exists := c.tree.Has(oldLeaf); !exists {
+				c.tree.Insert(newLeaf)
+				continue
+			}
+			if err := c.tree.Update(oldIndex, newLeaf); err != nil {
+				return fmt.Errorf("failed to update address %s: %w", event.Address.Hex(), err)
+			}
+		// }
+		case treeOpDelete:
+			// CRITICAL: tree.Update(index, 0) sets the leaf to 0 but KEEPS the
+			// slot. The tree size doesn't decrease, it maintains an empty slot
+			// at that index.
+			if err := c.tree.Update(oldIndex, big.NewInt(0)); err != nil {
+				return fmt.Errorf("failed to delete address %s: %w", event.Address.Hex(), err)
+			}
+		case treeOpUpdate:
+			if err := c.tree.Update(oldIndex, newLeaf); err != nil {
+				return fmt.Errorf("failed to update address %s: %w", event.Address.Hex(), err)
+			}
+		case treeOpNoOp:
+			// No operation needed
+		}
+	}
+	// Compute the final root of the tree after processing all events
+	treeRoot, ok := c.tree.Root()
+	if !ok {
+		return fmt.Errorf("failed to compute final census root")
+	}
+	// Verify the final root matches the expected root
+	if treeRoot.Cmp(root) != 0 {
+		return fmt.Errorf("final census root mismatch: expected %x, got %x", root.Bytes(), treeRoot.Bytes())
+	}
+	return nil
+}
+
 // persistImportedData saves all imported data in a single transaction
 func (c *CensusIMT) persistImportedData(hexAddrs []string, weights []*big.Int) error {
 	tx := c.db.WriteTx()
