@@ -49,9 +49,7 @@ func TestInitWithLeavesConsistencyBigInt(t *testing.T) {
 
 		tree2, _ := New(poseidonBig, BigIntEqualPoseidon, nil, nil, nil)
 		for _, lf := range leaves {
-			if err := tree2.Insert(new(big.Int).Set(lf)); err != nil {
-				t.Fatal(err)
-			}
+			tree2.Insert(new(big.Int).Set(lf))
 		}
 
 		r1, _ := tree1.Root()
@@ -253,12 +251,8 @@ func TestImportExportBigIntPoseidon(t *testing.T) {
 	}
 
 	// Do an insert on both, roots must match.
-	if err := tree1.Insert(bigIntPoseidon(4)); err != nil {
-		t.Fatal(err)
-	}
-	if err := tree2.Insert(bigIntPoseidon(4)); err != nil {
-		t.Fatal(err)
-	}
+	tree1.Insert(bigIntPoseidon(4))
+	tree2.Insert(bigIntPoseidon(4))
 	r1, _ := tree1.Root()
 	r2, _ := tree2.Root()
 	if r1.Cmp(r2) != 0 {

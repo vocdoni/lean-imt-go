@@ -165,7 +165,7 @@ func (t *LeanIMT[N]) Has(leaf N) bool {
 }
 
 // Insert inserts a single leaf at the end, updating path to root bottom-up.
-func (t *LeanIMT[N]) Insert(leaf N) error {
+func (t *LeanIMT[N]) Insert(leaf N) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	// If next depth increases, add a level.
@@ -205,7 +205,6 @@ func (t *LeanIMT[N]) Insert(leaf N) error {
 	t.nodes[top] = append(t.nodes[top], node)
 
 	t.markDirty()
-	return nil
 }
 
 // InsertMany inserts m leaves in batch (more efficient than m x Insert).
@@ -256,7 +255,6 @@ func (t *LeanIMT[N]) InsertMany(leaves []N) error {
 func (t *LeanIMT[N]) Update(index int, newLeaf N) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
 	if index < 0 || index >= len(t.nodes[0]) {
 		return errors.New("index is out of range")
 	}

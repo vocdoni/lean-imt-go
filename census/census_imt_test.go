@@ -844,8 +844,6 @@ func insertEmptyLeaves(t *testing.T, census *CensusIMT, count int) {
 	defer census.mu.Unlock()
 
 	for range count {
-		if err := census.tree.Insert(big.NewInt(0)); err != nil {
-			t.Fatalf("Failed to insert empty leaf: %v", err)
-		}
+		census.tree.Insert(big.NewInt(0))
 	}
 }

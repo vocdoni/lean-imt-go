@@ -123,9 +123,7 @@ func (c *CensusIMT) Add(address common.Address, weight *big.Int) error {
 	packed := PackAddressWeight(address.Big(), weight)
 
 	// Insert into tree
-	if err := c.tree.Insert(packed); err != nil {
-		return err
-	}
+	c.tree.Insert(packed)
 
 	// Update indices
 	newIndex := c.tree.Size() - 1
@@ -177,9 +175,7 @@ func (c *CensusIMT) AddBulk(addresses []common.Address, weights []*big.Int) erro
 	// Insert all values into tree
 	startingIndex := c.tree.Size()
 	for _, packed := range packedValues {
-		if err := c.tree.Insert(packed); err != nil {
-			return fmt.Errorf("failed to insert into tree: %w", err)
-		}
+		c.tree.Insert(packed)
 	}
 
 	// Update in-memory indices
@@ -207,8 +203,8 @@ func (c *CensusIMT) Update(address common.Address, newWeight *big.Int) error {
 	defer c.mu.Unlock()
 	// Look up index
 	hexAddr := address.Hex()
-	index, exists := c.addressIndex[hexAddr]
 	// If not found, return error
+	index, exists := c.addressIndex[hexAddr]
 	if !exists {
 		return ErrAddressNotFound
 	}
@@ -657,24 +653,18 @@ func (c *CensusIMT) ImportAll(dump *CensusDump) error {
 	for _, p := range participants {
 		// Fill gaps with empty entries if needed
 		for expectedIndex < p.Index {
-			if err := c.tree.Insert(big.NewInt(0)); err != nil {
-				return fmt.Errorf("failed to insert empty entry at index %d: %w", expectedIndex, err)
-			}
+			c.tree.Insert(big.NewInt(0))
 			expectedIndex++
 		}
 
 		// Check if this is an empty entry
 		if isEmptyParticipant(p) {
 			// Insert zero value for empty entry
-			if err := c.tree.Insert(big.NewInt(0)); err != nil {
-				return fmt.Errorf("failed to insert empty entry at index %d: %w", p.Index, err)
-			}
+			c.tree.Insert(big.NewInt(0))
 		} else {
 			// Insert actual participant
 			packed := PackAddressWeight(p.Address.Big(), p.Weight)
-			if err := c.tree.Insert(packed); err != nil {
-				return fmt.Errorf("failed to insert participant at index %d: %w", p.Index, err)
-			}
+			c.tree.Insert(packed)
 
 			// Track for maps and persistence
 			hexAddr := p.Address.Hex()
@@ -761,22 +751,16 @@ func (c *CensusIMT) Import(root *big.Int, reader io.Reader) error {
 	for _, p := range participants {
 		// Fill gaps with empty entries if needed
 		for expectedIndex < p.Index {
-			if err := c.tree.Insert(big.NewInt(0)); err != nil {
-				return fmt.Errorf("failed to insert empty entry at index %d: %w", expectedIndex, err)
-			}
+			c.tree.Insert(big.NewInt(0))
 			expectedIndex++
 		}
 
 		// Check if this is an empty entry
 		if isEmptyParticipant(p) {
-			if err := c.tree.Insert(big.NewInt(0)); err != nil {
-				return fmt.Errorf("failed to insert empty entry at index %d: %w", p.Index, err)
-			}
+			c.tree.Insert(big.NewInt(0))
 		} else {
 			packed := PackAddressWeight(p.Address.Big(), p.Weight)
-			if err := c.tree.Insert(packed); err != nil {
-				return fmt.Errorf("failed to insert participant at index %d: %w", p.Index, err)
-			}
+			c.tree.Insert(packed)
 
 			hexAddr := p.Address.Hex()
 			c.addressIndex[hexAddr] = int(p.Index)

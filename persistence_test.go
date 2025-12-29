@@ -169,9 +169,7 @@ func TestPersistenceUpdates(t *testing.T) {
 	}
 
 	// Add more leaves
-	if err := tree2.Insert(bigInt(40)); err != nil {
-		t.Fatal(err)
-	}
+	tree2.Insert(bigInt(40))
 
 	// Sync and close
 	if err := tree2.Sync(); err != nil {
@@ -277,9 +275,7 @@ func TestPersistenceDirtyFlag(t *testing.T) {
 	}
 
 	// Insert should make it dirty
-	if err := tree.Insert(bigInt(1)); err != nil {
-		t.Fatal(err)
-	}
+	tree.Insert(bigInt(1))
 	if !tree.dirty {
 		t.Fatal("tree should be dirty after insert")
 	}
@@ -322,9 +318,7 @@ func TestPersistenceInMemoryMode(t *testing.T) {
 	}
 
 	// Add some data
-	if err := tree.Insert(bigInt(1)); err != nil {
-		t.Fatal(err)
-	}
+	tree.Insert(bigInt(1))
 
 	// Sync should be no-op
 	if err := tree.Sync(); err != nil {
