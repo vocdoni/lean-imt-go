@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/vocdoni/davinci-node/db"
 	"github.com/vocdoni/davinci-node/db/metadb"
+	"github.com/vocdoni/davinci-node/types"
 	leanimt "github.com/vocdoni/lean-imt-go"
 )
 
@@ -896,8 +897,10 @@ func (c *CensusIMT) ImportEvents(root *big.Int, events []CensusEvent) error {
 		return fmt.Errorf("failed to compute final census root")
 	}
 	// Verify the final root matches the expected root
-	if treeRoot.Cmp(root) != 0 {
-		return fmt.Errorf("final census root mismatch: expected %x, got %x", root.Bytes(), treeRoot.Bytes())
+	localRoot := types.HexBytes(treeRoot.Bytes()).LeftTrim()
+	remoteRoot := types.HexBytes(root.Bytes()).LeftTrim()
+	if !localRoot.Equal(remoteRoot) {
+		return fmt.Errorf("final census root mismatch: expected %s, got %s", remoteRoot.String(), localRoot.String())
 	}
 	return nil
 }
