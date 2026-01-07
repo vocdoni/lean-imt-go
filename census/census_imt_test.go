@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/vocdoni/davinci-node/db"
+	"github.com/vocdoni/davinci-node/db/metadb"
 	leanimt "github.com/vocdoni/lean-imt-go"
 )
 
@@ -844,8 +846,90 @@ func insertEmptyLeaves(t *testing.T, census *CensusIMT, count int) {
 	defer census.mu.Unlock()
 
 	for range count {
-		if err := census.tree.Insert(big.NewInt(0)); err != nil {
-			t.Fatalf("Failed to insert empty leaf: %v", err)
+		census.tree.Insert(big.NewInt(0))
+	}
+}
+
+func TestCensusIMT_ImportEvents(t *testing.T) {
+	testExpectedRoot := common.HexToHash("0x0b3600e19a4f5017dea4f91f03d8aa0dd6f4c797795e7a5aa542e81b2c5a9485").Big()
+	testEvents := []CensusEvent{
+		{
+			Address:    common.HexToAddress("0xdeb8699659be5d41a0e57e179d6cb42e00b9200c"),
+			PrevWeight: big.NewInt(0),
+			NewWeight:  big.NewInt(1),
+		},
+		{
+			Address:    common.HexToAddress("0xa2e4d94c5923a8dd99c5792a7b0436474c54e1e1"),
+			PrevWeight: big.NewInt(0),
+			NewWeight:  big.NewInt(1),
+		},
+		{
+			Address:    common.HexToAddress("0xb1f05b11ba3d892edd00f2e7689779e2b8841827"),
+			PrevWeight: big.NewInt(0),
+			NewWeight:  big.NewInt(1),
+		},
+		{
+			Address:    common.HexToAddress("0x74d8967e812de34702ecd3d453a44bf37440b10b"),
+			PrevWeight: big.NewInt(0),
+			NewWeight:  big.NewInt(1),
+		},
+		{
+			Address:    common.HexToAddress("0xf3b06b503652a5e075d423f97056dfde0c4b066f"),
+			PrevWeight: big.NewInt(0),
+			NewWeight:  big.NewInt(1),
+		},
+		{
+			Address:    common.HexToAddress("0x74d8967e812de34702ecd3d453a44bf37440b10b"),
+			PrevWeight: big.NewInt(1),
+			NewWeight:  big.NewInt(0),
+		},
+		{
+			Address:    common.HexToAddress("0xdeb8699659be5d41a0e57e179d6cb42e00b9200c"),
+			PrevWeight: big.NewInt(1),
+			NewWeight:  big.NewInt(0),
+		},
+		{
+			Address:    common.HexToAddress("0xb1f05b11ba3d892edd00f2e7689779e2b8841827"),
+			PrevWeight: big.NewInt(1),
+			NewWeight:  big.NewInt(2),
+		},
+		{
+			Address:    common.HexToAddress("0x2aed14fe7bd056212cd0ed91b57a8ec5a5e33624"),
+			PrevWeight: big.NewInt(0),
+			NewWeight:  big.NewInt(1),
+		},
+		{
+			Address:    common.HexToAddress("0xb1f05b11ba3d892edd00f2e7689779e2b8841827"),
+			PrevWeight: big.NewInt(2),
+			NewWeight:  big.NewInt(1),
+		},
+		{
+			Address:    common.HexToAddress("0xdeb8699659be5d41a0e57e179d6cb42e00b9200c"),
+			PrevWeight: big.NewInt(0),
+			NewWeight:  big.NewInt(1),
+		},
+		{
+			Address:    common.HexToAddress("0xea96b32c78afbd1b01c3346f2c42cc2d89655b8d"),
+			PrevWeight: big.NewInt(0),
+			NewWeight:  big.NewInt(1),
+		},
+	}
+
+	db, err := metadb.New(db.TypeInMem, "")
+	if err != nil {
+		t.Fatalf("Failed to create in-memory database: %v", err)
+	}
+	censusTree, err := NewCensusIMT(db, leanimt.PoseidonHasher)
+	if err != nil {
+		t.Fatalf("Failed to create census: %v", err)
+	}
+	defer func() {
+		if err := censusTree.Close(); err != nil {
+			t.Errorf("Failed to close census: %v", err)
 		}
+	}()
+
+	if err := censusTree.ImportEvents(testExpectedRoot, testEvents); err != nil {
+		t.Fatalf("Failed to import events: %v", err)
 	}
 }

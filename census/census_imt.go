@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/vocdoni/davinci-node/db"
 	"github.com/vocdoni/davinci-node/db/metadb"
+	"github.com/vocdoni/davinci-node/types"
 	leanimt "github.com/vocdoni/lean-imt-go"
 )
 
@@ -79,7 +80,7 @@ var (
 func NewCensusIMT(database db.Database, hasher leanimt.Hasher[*big.Int]) (*CensusIMT, error) {
 	tree, err := leanimt.New(hasher, leanimt.BigIntEqual, database, leanimt.BigIntEncoder, leanimt.BigIntDecoder)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error initializing lean-imt tree: %w", err)
 	}
 
 	census := &CensusIMT{
@@ -93,7 +94,7 @@ func NewCensusIMT(database db.Database, hasher leanimt.Hasher[*big.Int]) (*Censu
 
 	// Load existing data
 	if err := census.Load(); err != nil && err != db.ErrKeyNotFound {
-		return nil, err
+		return nil, fmt.Errorf("error loading census data: %w", err)
 	}
 
 	return census, nil
@@ -123,9 +124,7 @@ func (c *CensusIMT) Add(address common.Address, weight *big.Int) error {
 	packed := PackAddressWeight(address.Big(), weight)
 
 	// Insert into tree
-	if err := c.tree.Insert(packed); err != nil {
-		return err
-	}
+	c.tree.Insert(packed)
 
 	// Update indices
 	newIndex := c.tree.Size() - 1
@@ -177,9 +176,7 @@ func (c *CensusIMT) AddBulk(addresses []common.Address, weights []*big.Int) erro
 	// Insert all values into tree
 	startingIndex := c.tree.Size()
 	for _, packed := range packedValues {
-		if err := c.tree.Insert(packed); err != nil {
-			return fmt.Errorf("failed to insert into tree: %w", err)
-		}
+		c.tree.Insert(packed)
 	}
 
 	// Update in-memory indices
@@ -197,6 +194,35 @@ func (c *CensusIMT) AddBulk(addresses []common.Address, weights []*big.Int) erro
 		}
 	}
 
+	return nil
+}
+
+// Update updates the voting weight for an existing address in the census. If
+// the address does not exist, ErrAddressNotFound is returned.
+func (c *CensusIMT) Update(address common.Address, newWeight *big.Int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Look up index
+	hexAddr := address.Hex()
+	// If not found, return error
+	index, exists := c.addressIndex[hexAddr]
+	if !exists {
+		return ErrAddressNotFound
+	}
+	// Pack address and new weight
+	packed := PackAddressWeight(address.Big(), newWeight)
+	// Update tree at index
+	if err := c.tree.Update(index, packed); err != nil {
+		return err
+	}
+	// Update in-memory weight
+	c.weights[hexAddr] = new(big.Int).Set(newWeight)
+	// Persist updated weight if database exists
+	if c.db != nil {
+		if err := c.persistEntry(hexAddr, index, newWeight); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -628,24 +654,18 @@ func (c *CensusIMT) ImportAll(dump *CensusDump) error {
 	for _, p := range participants {
 		// Fill gaps with empty entries if needed
 		for expectedIndex < p.Index {
-			if err := c.tree.Insert(big.NewInt(0)); err != nil {
-				return fmt.Errorf("failed to insert empty entry at index %d: %w", expectedIndex, err)
-			}
+			c.tree.Insert(big.NewInt(0))
 			expectedIndex++
 		}
 
 		// Check if this is an empty entry
 		if isEmptyParticipant(p) {
 			// Insert zero value for empty entry
-			if err := c.tree.Insert(big.NewInt(0)); err != nil {
-				return fmt.Errorf("failed to insert empty entry at index %d: %w", p.Index, err)
-			}
+			c.tree.Insert(big.NewInt(0))
 		} else {
 			// Insert actual participant
 			packed := PackAddressWeight(p.Address.Big(), p.Weight)
-			if err := c.tree.Insert(packed); err != nil {
-				return fmt.Errorf("failed to insert participant at index %d: %w", p.Index, err)
-			}
+			c.tree.Insert(packed)
 
 			// Track for maps and persistence
 			hexAddr := p.Address.Hex()
@@ -732,22 +752,16 @@ func (c *CensusIMT) Import(root *big.Int, reader io.Reader) error {
 	for _, p := range participants {
 		// Fill gaps with empty entries if needed
 		for expectedIndex < p.Index {
-			if err := c.tree.Insert(big.NewInt(0)); err != nil {
-				return fmt.Errorf("failed to insert empty entry at index %d: %w", expectedIndex, err)
-			}
+			c.tree.Insert(big.NewInt(0))
 			expectedIndex++
 		}
 
 		// Check if this is an empty entry
 		if isEmptyParticipant(p) {
-			if err := c.tree.Insert(big.NewInt(0)); err != nil {
-				return fmt.Errorf("failed to insert empty entry at index %d: %w", p.Index, err)
-			}
+			c.tree.Insert(big.NewInt(0))
 		} else {
 			packed := PackAddressWeight(p.Address.Big(), p.Weight)
-			if err := c.tree.Insert(packed); err != nil {
-				return fmt.Errorf("failed to insert participant at index %d: %w", p.Index, err)
-			}
+			c.tree.Insert(packed)
 
 			hexAddr := p.Address.Hex()
 			c.addressIndex[hexAddr] = int(p.Index)
@@ -777,6 +791,117 @@ func (c *CensusIMT) Import(root *big.Int, reader io.Reader) error {
 		}
 	}
 
+	return nil
+}
+
+// CensusEvent represents a single weight change event fetched from the
+// GraphQL endpoint. It contains the account address, previous weight, and
+// new weight.
+type CensusEvent struct {
+	Address    common.Address
+	PrevWeight *big.Int
+	NewWeight  *big.Int
+}
+
+type treeOp int
+
+const (
+	treeOpInsert treeOp = iota // insert leaf
+	treeOpDelete               // delete leaf
+	treeOpUpdate               // update leaf
+	treeOpNoOp                 // no operation
+)
+
+// treeOp determines the type of tree operation based on the previous and new
+// weights in the event:
+//   - Insert: previous weight is 0, new weight > 0
+//   - Delete: previous weight > 0, new weight is 0
+//   - Update: previous weight > 0, new weight > 0
+//
+// If both weights are 0, it returns NoOp.
+func (e CensusEvent) treeOp() treeOp {
+	newWeight := e.NewWeight.Int64()
+	prevWeight := e.PrevWeight.Int64()
+
+	switch {
+	case prevWeight == 0 && newWeight > 0:
+		return treeOpInsert
+	case prevWeight > 0 && newWeight == 0:
+		return treeOpDelete
+	case prevWeight > 0:
+		return treeOpUpdate
+	default:
+		return treeOpNoOp
+	}
+}
+
+// ImportEvents imports census changes from a list of CensusEvent, applying
+// inserts, updates, and deletions as specified. The final tree root after
+// applying all events must match the provided root.
+//
+// This method resets any existing census data before applying events.
+func (c *CensusIMT) ImportEvents(root *big.Int, events []CensusEvent) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Reset state to prevent conflicts
+	if err := c.resetPersistentState(); err != nil {
+		return err
+	}
+
+	// Clear existing data
+	c.addressIndex = make(map[string]int)
+	c.indexToAddress = make(map[int]string)
+	c.weights = make(map[string]*big.Int)
+
+	// Recreate tree
+	var err error
+	c.tree, err = leanimt.New(c.hasher, leanimt.BigIntEqual, c.db, leanimt.BigIntEncoder, leanimt.BigIntDecoder)
+	if err != nil {
+		return err
+	}
+
+	for _, event := range events {
+		oldLeaf := PackAddressWeight(event.Address.Big(), event.PrevWeight)
+		newLeaf := PackAddressWeight(event.Address.Big(), event.NewWeight)
+		oldIndex := c.tree.IndexOf(oldLeaf)
+
+		switch event.treeOp() {
+		case treeOpInsert:
+			if exists := c.tree.Has(oldLeaf); !exists {
+				c.tree.Insert(newLeaf)
+				continue
+			}
+			if err := c.tree.Update(oldIndex, newLeaf); err != nil {
+				return fmt.Errorf("failed to update address %s: %w", event.Address.Hex(), err)
+			}
+		// }
+		case treeOpDelete:
+			// CRITICAL: tree.Update(index, 0) sets the leaf to 0 but KEEPS the
+			// slot. The tree size doesn't decrease, it maintains an empty slot
+			// at that index.
+			if err := c.tree.Update(oldIndex, big.NewInt(0)); err != nil {
+				return fmt.Errorf("failed to delete address %s: %w", event.Address.Hex(), err)
+			}
+		case treeOpUpdate:
+			if err := c.tree.Update(oldIndex, newLeaf); err != nil {
+				return fmt.Errorf("failed to update address %s: %w", event.Address.Hex(), err)
+			}
+		case treeOpNoOp:
+			// No operation needed
+		}
+	}
+	// Compute the final root of the tree after processing all events
+	treeRoot, ok := c.tree.Root()
+	if !ok {
+		return fmt.Errorf("failed to compute final census root")
+	}
+	// Verify the final root matches the expected root
+	localRoot := types.HexBytes(treeRoot.Bytes()).LeftTrim()
+	remoteRoot := types.HexBytes(root.Bytes()).LeftTrim()
+	if !localRoot.Equal(remoteRoot) {
+		return fmt.Errorf("final census root mismatch: expected %s, got %s", remoteRoot.String(), localRoot.String())
+	}
 	return nil
 }
 

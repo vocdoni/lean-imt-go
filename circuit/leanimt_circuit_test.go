@@ -62,9 +62,7 @@ func TestLeanIMTProofCircuit(t *testing.T) {
 	}
 
 	for _, leaf := range leaves {
-		if err := tree.Insert(leaf); err != nil {
-			t.Fatalf("Failed to insert leaf: %v", err)
-		}
+		tree.Insert(leaf)
 	}
 
 	// Generate proof for leaf at index 2 (value 3)
@@ -152,9 +150,7 @@ func TestLeanIMTProofCircuitEdgeCases(t *testing.T) {
 
 		// Insert single leaf
 		leaf := big.NewInt(42)
-		if err := tree.Insert(leaf); err != nil {
-			t.Fatalf("Failed to insert leaf: %v", err)
-		}
+		tree.Insert(leaf)
 
 		// Generate proof
 		proof, err := tree.GenerateProof(0)
@@ -199,9 +195,7 @@ func TestLeanIMTProofCircuitEdgeCases(t *testing.T) {
 		// Insert many leaves
 		numLeaves := 16
 		for i := range numLeaves {
-			if err := tree.Insert(big.NewInt(int64(i * 10))); err != nil {
-				t.Fatalf("Failed to insert leaf %d: %v", i, err)
-			}
+			tree.Insert(big.NewInt(int64(i * 10)))
 		}
 
 		// Test proof for various positions
