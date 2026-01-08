@@ -854,42 +854,41 @@ func (c *CensusIMT) ImportEvents(root *big.Int, events []CensusEvent) error {
 	c.indexToAddress = make(map[int]string)
 	c.weights = make(map[string]*big.Int)
 
-	// Recreate tree
-	var err error
-	c.tree, err = leanimt.New(c.hasher, leanimt.BigIntEqual, c.db, leanimt.BigIntEncoder, leanimt.BigIntDecoder)
-	if err != nil {
-		return err
-	}
-
 	for _, event := range events {
+		// Process each event
+		addr := event.Address.Hex()
 		oldLeaf := PackAddressWeight(event.Address.Big(), event.PrevWeight)
 		newLeaf := PackAddressWeight(event.Address.Big(), event.NewWeight)
-		oldIndex := c.tree.IndexOf(oldLeaf)
+		index := c.tree.IndexOf(oldLeaf)
 
+		// Determine operation and apply to tree
 		switch event.treeOp() {
 		case treeOpInsert:
 			if exists := c.tree.Has(oldLeaf); !exists {
-				c.tree.Insert(newLeaf)
-				continue
+				index = c.tree.Insert(newLeaf)
+				break
 			}
-			if err := c.tree.Update(oldIndex, newLeaf); err != nil {
-				return fmt.Errorf("failed to update address %s: %w", event.Address.Hex(), err)
+			if err := c.tree.Update(index, newLeaf); err != nil {
+				return fmt.Errorf("failed to update address %s: %w", addr, err)
 			}
-		// }
 		case treeOpDelete:
 			// CRITICAL: tree.Update(index, 0) sets the leaf to 0 but KEEPS the
 			// slot. The tree size doesn't decrease, it maintains an empty slot
 			// at that index.
-			if err := c.tree.Update(oldIndex, big.NewInt(0)); err != nil {
-				return fmt.Errorf("failed to delete address %s: %w", event.Address.Hex(), err)
+			if err := c.tree.Update(index, big.NewInt(0)); err != nil {
+				return fmt.Errorf("failed to delete address %s: %w", addr, err)
 			}
 		case treeOpUpdate:
-			if err := c.tree.Update(oldIndex, newLeaf); err != nil {
-				return fmt.Errorf("failed to update address %s: %w", event.Address.Hex(), err)
+			if err := c.tree.Update(index, newLeaf); err != nil {
+				return fmt.Errorf("failed to update address %s: %w", addr, err)
 			}
 		case treeOpNoOp:
 			// No operation needed
 		}
+		// Update in-memory indices
+		c.addressIndex[addr] = index
+		c.indexToAddress[index] = addr
+		c.weights[addr] = new(big.Int).Set(event.NewWeight)
 	}
 	// Compute the final root of the tree after processing all events
 	treeRoot, ok := c.tree.Root()
@@ -902,7 +901,7 @@ func (c *CensusIMT) ImportEvents(root *big.Int, events []CensusEvent) error {
 	if !localRoot.Equal(remoteRoot) {
 		return fmt.Errorf("final census root mismatch: expected %s, got %s", remoteRoot.String(), localRoot.String())
 	}
-	return nil
+	return c.tree.Sync()
 }
 
 // persistImportedData saves all imported data in a single transaction
