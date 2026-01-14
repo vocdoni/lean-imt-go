@@ -6,7 +6,6 @@ require (
 	github.com/consensys/gnark v0.14.1-0.20251208223249-9af46fd442f3
 	github.com/consensys/gnark-crypto v0.19.3-0.20251208215708-a16777bf2020
 	github.com/ethereum/go-ethereum v1.16.7
-	github.com/frankban/quicktest v1.14.6
 	github.com/iden3/go-iden3-crypto v0.0.17
 	github.com/vocdoni/davinci-node v0.0.0-20251231145653-c809413014e0
 	github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20251209100355-b3b6e5e96af9
@@ -41,7 +40,6 @@ require (
 	github.com/goccy/go-yaml v1.11.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
-	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20250820193118-f64d9cf942d6 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect

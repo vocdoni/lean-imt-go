@@ -165,7 +165,7 @@ func (t *LeanIMT[N]) Has(leaf N) bool {
 }
 
 // Insert inserts a single leaf at the end, updating path to root bottom-up.
-func (t *LeanIMT[N]) Insert(leaf N) {
+func (t *LeanIMT[N]) Insert(leaf N) int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	// If next depth increases, add a level.
@@ -180,6 +180,7 @@ func (t *LeanIMT[N]) Insert(leaf N) {
 	// ensure capacity at leaves and set
 	ensureIndex(&t.nodes[0], index)
 	t.nodes[0][index] = node
+	finalIndex := index
 
 	// Update parents up to last-but-top; top is assigned after loop.
 	depth := len(t.nodes) - 1
@@ -205,6 +206,7 @@ func (t *LeanIMT[N]) Insert(leaf N) {
 	t.nodes[top] = append(t.nodes[top], node)
 
 	t.markDirty()
+	return finalIndex
 }
 
 // InsertMany inserts m leaves in batch (more efficient than m x Insert).
