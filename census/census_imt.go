@@ -835,7 +835,7 @@ func (e CensusEvent) treeOp() treeOp {
 	}
 }
 
-func (c *CensusIMT) applyEvents(root *big.Int, events []CensusEvent) error {
+func (c *CensusIMT) applyEvents(events []CensusEvent) error {
 	for _, event := range events {
 		// Process each event
 		addr := event.Address.Hex()
@@ -887,28 +887,23 @@ func (c *CensusIMT) applyEvents(root *big.Int, events []CensusEvent) error {
 			c.weights[addr] = new(big.Int).Set(event.NewWeight)
 		}
 	}
-	// Compute the final root of the tree after processing all events
-	treeRoot, ok := c.tree.Root()
-	if !ok {
-		return fmt.Errorf("failed to compute final census root")
-	}
-	// Verify the final root matches the expected root
-	localRoot := types.HexBytes(treeRoot.Bytes()).LeftTrim()
-	remoteRoot := types.HexBytes(root.Bytes()).LeftTrim()
-	if !localRoot.Equal(remoteRoot) {
-		return fmt.Errorf("final census root mismatch: expected %s, got %s", remoteRoot.String(), localRoot.String())
-	}
-	return c.tree.Sync()
+	return nil
 }
 
 // ApplyEvents applies a list of CensusEvent to the existing census, updating
 // inserts, updates, and deletions as specified. The final tree root after
 // applying all events must match the provided root.
-func (c *CensusIMT) ApplyEvents(root *big.Int, events []CensusEvent) error {
+func (c *CensusIMT) ApplyEvents(events []CensusEvent) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.applyEvents(root, events)
+	// Apply events to update the census
+	if err := c.applyEvents(events); err != nil {
+		return err
+	}
+
+	// Sync tree state
+	return c.tree.Sync()
 }
 
 // ImportEvents imports census changes from a list of CensusEvent, applying
@@ -930,8 +925,26 @@ func (c *CensusIMT) ImportEvents(root *big.Int, events []CensusEvent) error {
 	c.indexToAddress = make(map[int]string)
 	c.weights = make(map[string]*big.Int)
 
-	// Apply events to build the census
-	return c.applyEvents(root, events)
+	// Apply events to update the census
+	if err := c.applyEvents(events); err != nil {
+		return err
+	}
+
+	// Compute the final root of the tree after apply all events
+	treeRoot, ok := c.tree.Root()
+	if !ok {
+		return fmt.Errorf("failed to compute final census root")
+	}
+
+	// Verify the current root matches the expected one
+	currentRoot := types.HexBytes(treeRoot.Bytes()).LeftTrim()
+	expectedRoot := types.HexBytes(root.Bytes()).LeftTrim()
+	if !currentRoot.Equal(expectedRoot) {
+		return fmt.Errorf("final census root mismatch: expected %s, got %s", expectedRoot.String(), currentRoot.String())
+	}
+
+	// Sync tree state
+	return c.tree.Sync()
 }
 
 // persistImportedData saves all imported data in a single transaction
