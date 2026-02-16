@@ -5,7 +5,7 @@ import (
 	"math/big"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/vocdoni/gnark-crypto-primitives/hash/bn254/poseidon"
+	"github.com/vocdoni/gnark-crypto-primitives/hash/native/bn254/poseidon"
 	"github.com/vocdoni/lean-imt-go/census"
 )
 

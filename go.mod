@@ -8,7 +8,7 @@ require (
 	github.com/ethereum/go-ethereum v1.16.7
 	github.com/iden3/go-iden3-crypto v0.0.17
 	github.com/vocdoni/davinci-node v0.0.0-20251231145653-c809413014e0
-	github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20251209100355-b3b6e5e96af9
+	github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20260216160026-8dfbbf829faf
 	golang.org/x/crypto v0.46.0
 )
 
