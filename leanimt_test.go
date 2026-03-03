@@ -196,7 +196,7 @@ func TestProofs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pr.Index != 0 || len(pr.Siblings) != 0 {
+	if pr.PathBits != 0 || len(pr.Siblings) != 0 {
 		t.Fatalf("unexpected single-leaf proof")
 	}
 	if !tree.VerifyProof(pr) {

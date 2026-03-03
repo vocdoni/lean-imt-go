@@ -6,9 +6,9 @@ require (
 	github.com/consensys/gnark v0.14.1-0.20251208223249-9af46fd442f3
 	github.com/consensys/gnark-crypto v0.19.3-0.20251208215708-a16777bf2020
 	github.com/ethereum/go-ethereum v1.16.7
-	github.com/iden3/go-iden3-crypto v0.0.17
+	github.com/iden3/go-iden3-crypto v0.0.18-0.20241128121142-625bf563ffc5
 	github.com/vocdoni/davinci-node v0.0.0-20251231145653-c809413014e0
-	github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20251209100355-b3b6e5e96af9
+	github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20260218072319-01482f6ccc38
 	golang.org/x/crypto v0.46.0
 )
 

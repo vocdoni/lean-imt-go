@@ -88,8 +88,8 @@ func TestCensusIMT_Dump_Small(t *testing.T) {
 		if entry.Weight.Cmp(weights[i]) != 0 {
 			t.Errorf("Weight mismatch for %s: expected %s, got %s", hexAddr, weights[i].String(), entry.Weight.String())
 		}
-		if entry.Index != uint64(i) {
-			t.Errorf("Index mismatch for %s: expected %d, got %d", hexAddr, i, entry.Index)
+		if entry.AddressIndex != uint64(i) {
+			t.Errorf("AddressIndex mismatch for %s: expected %d, got %d", hexAddr, i, entry.AddressIndex)
 		}
 	}
 }

@@ -15,16 +15,17 @@ import (
 
 // censusProofCircuit for testing census proof verification
 type censusProofCircuit struct {
-	Root     frontend.Variable                 `gnark:"root,public"`
-	Address  frontend.Variable                 `gnark:"address,public"`
-	Weight   frontend.Variable                 `gnark:"weight"`
-	Index    frontend.Variable                 `gnark:"index"`
-	Siblings [MaxCensusDepth]frontend.Variable `gnark:"siblings"`
+	Root      frontend.Variable                 `gnark:"root,public"`
+	Address   frontend.Variable                 `gnark:"address,public"`
+	Weight    frontend.Variable                 `gnark:"weight"`
+	PathBits  frontend.Variable                 `gnark:"pathBits"`
+	LeafIndex frontend.Variable                 `gnark:"leafIndex"`
+	Siblings  [MaxCensusDepth]frontend.Variable `gnark:"siblings"`
 }
 
 func (circuit *censusProofCircuit) Define(api frontend.API) error {
 	isValid, err := VerifyCensusProof(api, circuit.Root, circuit.Address,
-		circuit.Weight, circuit.Index, circuit.Siblings)
+		circuit.Weight, circuit.PathBits, circuit.LeafIndex, circuit.Siblings)
 	if err != nil {
 		return err
 	}
@@ -83,11 +84,12 @@ func TestVerifyCensusProof(t *testing.T) {
 
 			// Create witness
 			witness := &censusProofCircuit{
-				Root:     proof.Root,
-				Address:  proof.Address.Big(),
-				Weight:   proof.Weight,
-				Index:    proof.Index,
-				Siblings: [MaxCensusDepth]frontend.Variable{},
+				Root:      proof.Root,
+				Address:   proof.Address.Big(),
+				Weight:    proof.Weight,
+				PathBits:  proof.PathBits,
+				LeafIndex: proof.AddressIndex,
+				Siblings:  [MaxCensusDepth]frontend.Variable{},
 			}
 
 			// Fill siblings array
@@ -151,11 +153,12 @@ func TestVerifyCensusProof_LargerCensus(t *testing.T) {
 
 			circuit := &censusProofCircuit{}
 			witness := &censusProofCircuit{
-				Root:     proof.Root,
-				Address:  proof.Address.Big(),
-				Weight:   proof.Weight,
-				Index:    proof.Index,
-				Siblings: [MaxCensusDepth]frontend.Variable{},
+				Root:      proof.Root,
+				Address:   proof.Address.Big(),
+				Weight:    proof.Weight,
+				PathBits:  proof.PathBits,
+				LeafIndex: proof.AddressIndex,
+				Siblings:  [MaxCensusDepth]frontend.Variable{},
 			}
 
 			// Fill siblings
@@ -209,11 +212,12 @@ func TestVerifyCensusProof_EdgeCases(t *testing.T) {
 
 		circuit := &censusProofCircuit{}
 		witness := &censusProofCircuit{
-			Root:     proof.Root,
-			Address:  proof.Address.Big(),
-			Weight:   proof.Weight,
-			Index:    proof.Index,
-			Siblings: siblings, // Padded
+			Root:      proof.Root,
+			Address:   proof.Address.Big(),
+			Weight:    proof.Weight,
+			PathBits:  proof.PathBits,
+			LeafIndex: proof.AddressIndex,
+			Siblings:  siblings, // Padded
 		}
 
 		assert := test.NewAssert(t)
@@ -255,11 +259,12 @@ func TestVerifyCensusProof_EdgeCases(t *testing.T) {
 
 		circuit := &censusProofCircuit{}
 		witness := &censusProofCircuit{
-			Root:     proof.Root,
-			Address:  proof.Address.Big(),
-			Weight:   proof.Weight,
-			Index:    proof.Index,
-			Siblings: siblings,
+			Root:      proof.Root,
+			Address:   proof.Address.Big(),
+			Weight:    proof.Weight,
+			PathBits:  proof.PathBits,
+			LeafIndex: proof.AddressIndex,
+			Siblings:  siblings,
 		}
 
 		assert := test.NewAssert(t)

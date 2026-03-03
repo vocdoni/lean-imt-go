@@ -373,7 +373,7 @@ func TestPersistenceProofs(t *testing.T) {
 	}
 
 	// Proofs should be identical
-	if proof1.Index != proof2.Index {
+	if proof1.PathBits != proof2.PathBits {
 		t.Fatal("proof indices should match")
 	}
 	if proof1.Leaf.Cmp(proof2.Leaf) != 0 {
