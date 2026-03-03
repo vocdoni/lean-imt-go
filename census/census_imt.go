@@ -33,15 +33,16 @@ type CensusIMT struct {
 type CensusProof struct {
 	Root     *big.Int   // Merkle root
 	Siblings []*big.Int // Merkle siblings
+	PathBits uint64     // Packed merkle path bits used for proof verification
 	CensusParticipant
 }
 
 // CensusParticipant includes the information of a census member, it can be used to
 // export or import census data, but also as part of a CensusProof
 type CensusParticipant struct {
-	Index   uint64         `json:"index"`
-	Address common.Address `json:"address"`
-	Weight  *big.Int       `json:"weight"`
+	AddressIndex uint64         `json:"addressIndex"`
+	Address      common.Address `json:"address"`
+	Weight       *big.Int       `json:"weight"`
 }
 
 // CensusDump represents a full export of the census state. It can be used to
@@ -233,8 +234,8 @@ func (c *CensusIMT) GenerateProof(address common.Address) (*CensusProof, error) 
 
 	hexAddr := address.Hex()
 
-	// Look up index
-	index, exists := c.addressIndex[hexAddr]
+	// Look up address index
+	addressIndex, exists := c.addressIndex[hexAddr]
 	if !exists {
 		return nil, ErrAddressNotFound
 	}
@@ -246,17 +247,18 @@ func (c *CensusIMT) GenerateProof(address common.Address) (*CensusProof, error) 
 	}
 
 	// Generate tree proof
-	treeProof, err := c.tree.GenerateProof(index)
+	treeProof, err := c.tree.GenerateProof(addressIndex)
 	if err != nil {
 		return nil, err
 	}
 
 	return &CensusProof{
-		Root: treeProof.Root,
+		Root:     treeProof.Root,
+		PathBits: treeProof.PathBits,
 		CensusParticipant: CensusParticipant{
-			Index:   treeProof.Index,
-			Address: address,
-			Weight:  new(big.Int).Set(weight),
+			AddressIndex: uint64(addressIndex),
+			Address:      address,
+			Weight:       new(big.Int).Set(weight),
 		},
 		Siblings: treeProof.Siblings,
 	}, nil
@@ -361,9 +363,9 @@ func (c *CensusIMT) dumpRangeSingleLock(pw *io.PipeWriter, start, end int) {
 		if !exists {
 			// Empty entry (gap in tree)
 			participant = CensusParticipant{
-				Index:   uint64(i),
-				Address: common.Address{},
-				Weight:  big.NewInt(0),
+				AddressIndex: uint64(i),
+				Address:      common.Address{},
+				Weight:       big.NewInt(0),
 			}
 		} else {
 			weight, exists := c.weights[addr]
@@ -373,9 +375,9 @@ func (c *CensusIMT) dumpRangeSingleLock(pw *io.PipeWriter, start, end int) {
 				return
 			}
 			participant = CensusParticipant{
-				Index:   uint64(i),
-				Address: common.HexToAddress(addr),
-				Weight:  weight,
+				AddressIndex: uint64(i),
+				Address:      common.HexToAddress(addr),
+				Weight:       weight,
 			}
 		}
 		entries = append(entries, participant)
@@ -408,9 +410,9 @@ func (c *CensusIMT) dumpRangeBatched(pw *io.PipeWriter, start, end int) {
 			if !exists {
 				// Empty entry (gap in tree)
 				participant = CensusParticipant{
-					Index:   uint64(j),
-					Address: common.Address{},
-					Weight:  big.NewInt(0),
+					AddressIndex: uint64(j),
+					Address:      common.Address{},
+					Weight:       big.NewInt(0),
 				}
 			} else {
 				weight, exists := c.weights[addr]
@@ -420,9 +422,9 @@ func (c *CensusIMT) dumpRangeBatched(pw *io.PipeWriter, start, end int) {
 					return
 				}
 				participant = CensusParticipant{
-					Index:   uint64(j),
-					Address: common.HexToAddress(addr),
-					Weight:  weight,
+					AddressIndex: uint64(j),
+					Address:      common.HexToAddress(addr),
+					Weight:       weight,
 				}
 			}
 			batch = append(batch, participant)
@@ -592,16 +594,16 @@ func (c *CensusIMT) DumpAll() (*CensusDump, error) {
 		if !exists {
 			// Empty entry
 			participants = append(participants, CensusParticipant{
-				Index:   uint64(i),
-				Address: common.Address{},
-				Weight:  big.NewInt(0),
+				AddressIndex: uint64(i),
+				Address:      common.Address{},
+				Weight:       big.NewInt(0),
 			})
 		} else {
 			weight := c.weights[addr]
 			participants = append(participants, CensusParticipant{
-				Index:   uint64(i),
-				Address: common.HexToAddress(addr),
-				Weight:  weight,
+				AddressIndex: uint64(i),
+				Address:      common.HexToAddress(addr),
+				Weight:       weight,
 			})
 			totalWeight.Add(totalWeight, weight)
 			nonEmptyCount++
@@ -653,7 +655,7 @@ func (c *CensusIMT) ImportAll(dump *CensusDump) error {
 
 	for _, p := range participants {
 		// Fill gaps with empty entries if needed
-		for expectedIndex < p.Index {
+		for expectedIndex < p.AddressIndex {
 			c.tree.Insert(big.NewInt(0))
 			expectedIndex++
 		}
@@ -669,8 +671,8 @@ func (c *CensusIMT) ImportAll(dump *CensusDump) error {
 
 			// Track for maps and persistence
 			hexAddr := p.Address.Hex()
-			c.addressIndex[hexAddr] = int(p.Index)
-			c.indexToAddress[int(p.Index)] = hexAddr
+			c.addressIndex[hexAddr] = int(p.AddressIndex)
+			c.indexToAddress[int(p.AddressIndex)] = hexAddr
 			c.weights[hexAddr] = new(big.Int).Set(p.Weight)
 
 			hexAddrs = append(hexAddrs, hexAddr)
@@ -751,7 +753,7 @@ func (c *CensusIMT) Import(root *big.Int, reader io.Reader) error {
 
 	for _, p := range participants {
 		// Fill gaps with empty entries if needed
-		for expectedIndex < p.Index {
+		for expectedIndex < p.AddressIndex {
 			c.tree.Insert(big.NewInt(0))
 			expectedIndex++
 		}
@@ -764,8 +766,8 @@ func (c *CensusIMT) Import(root *big.Int, reader io.Reader) error {
 			c.tree.Insert(packed)
 
 			hexAddr := p.Address.Hex()
-			c.addressIndex[hexAddr] = int(p.Index)
-			c.indexToAddress[int(p.Index)] = hexAddr
+			c.addressIndex[hexAddr] = int(p.AddressIndex)
+			c.indexToAddress[int(p.AddressIndex)] = hexAddr
 			c.weights[hexAddr] = new(big.Int).Set(p.Weight)
 
 			hexAddrs = append(hexAddrs, hexAddr)
@@ -1082,12 +1084,11 @@ func intToString(x int) string {
 }
 
 // censusEntrySortFunc helper function returns -1, 0, or 1 based on the
-// comparison of two CensusEntry by Index. It is used for sorting CensusEntry
-// slices.
+// comparison of two CensusEntry values by AddressIndex. It is used for sorting CensusEntry slices.
 func censusEntrySortFunc(a, b CensusParticipant) int {
-	if a.Index < b.Index {
+	if a.AddressIndex < b.AddressIndex {
 		return -1
-	} else if a.Index > b.Index {
+	} else if a.AddressIndex > b.AddressIndex {
 		return 1
 	}
 	return 0

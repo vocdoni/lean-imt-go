@@ -5,16 +5,17 @@ import (
 	"math/big"
 
 	"github.com/consensys/gnark/frontend"
-	"github.com/vocdoni/gnark-crypto-primitives/hash/bn254/poseidon"
+	"github.com/vocdoni/gnark-crypto-primitives/hash/native/bn254/poseidon"
 	"github.com/vocdoni/lean-imt-go/census"
 )
 
 const MaxCensusDepth = 24
 
 type MerkleProof struct {
-	Leaf     frontend.Variable                 // The leaf value to verify
-	Index    frontend.Variable                 // Packed path bits indicating the position of the leaf
-	Siblings [MaxCensusDepth]frontend.Variable // Array of sibling nodes for the proof path
+	Leaf      frontend.Variable                 // The leaf value to verify
+	PathBits  frontend.Variable                 // Packed path bits indicating the position of the leaf
+	LeafIndex frontend.Variable                 // Absolute leaf position in the level-0 leaves
+	Siblings  [MaxCensusDepth]frontend.Variable // Array of sibling nodes for the proof path
 }
 
 // CensusProofToMerkleProof converts a census.CensusProof to a MerkleProof
@@ -30,9 +31,10 @@ func CensusProofToMerkleProof(proof *census.CensusProof) MerkleProof {
 		}
 	}
 	return MerkleProof{
-		Leaf:     census.PackAddressWeight(proof.Address.Big(), proof.Weight),
-		Index:    new(big.Int).SetUint64(proof.Index),
-		Siblings: siblings,
+		Leaf:      census.PackAddressWeight(proof.Address.Big(), proof.Weight),
+		PathBits:  new(big.Int).SetUint64(proof.PathBits),
+		LeafIndex: new(big.Int).SetUint64(proof.AddressIndex),
+		Siblings:  siblings,
 	}
 }
 
@@ -40,13 +42,14 @@ func CensusProofToMerkleProof(proof *census.CensusProof) MerkleProof {
 // weight into a single leaf value. This functions should be used in-circuit.
 func NewMerkleProof(
 	api frontend.API,
-	address, weight, index frontend.Variable,
+	address, weight, pathBits, leafIndex frontend.Variable,
 	siblings [MaxCensusDepth]frontend.Variable,
 ) MerkleProof {
 	return MerkleProof{
-		Leaf:     PackLeaf(api, address, weight),
-		Index:    index,
-		Siblings: siblings,
+		Leaf:      PackLeaf(api, address, weight),
+		PathBits:  pathBits,
+		LeafIndex: leafIndex,
+		Siblings:  siblings,
 	}
 }
 
@@ -70,7 +73,7 @@ func (p MerkleProof) Verify(api frontend.API, root frontend.Variable) (frontend.
 		return isEqual, nil
 	}
 	// Get all index bits at once
-	indexBits := api.ToBinary(p.Index, len(p.Siblings))
+	indexBits := api.ToBinary(p.PathBits, len(p.Siblings))
 	// Process each sibling in the proof path
 	for i, sibling := range p.Siblings {
 		// Check if this sibling is actually used (non-zero)
@@ -113,10 +116,11 @@ func VerifyCensusProof(
 	root frontend.Variable,
 	address frontend.Variable,
 	weight frontend.Variable,
-	index frontend.Variable,
+	pathBits frontend.Variable,
+	leafIndex frontend.Variable,
 	siblings [MaxCensusDepth]frontend.Variable,
 ) (frontend.Variable, error) {
-	proof := NewMerkleProof(api, address, weight, index, siblings)
+	proof := NewMerkleProof(api, address, weight, pathBits, leafIndex, siblings)
 	return proof.Verify(api, root)
 }
 

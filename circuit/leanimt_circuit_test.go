@@ -84,9 +84,10 @@ func TestLeanIMTProofCircuit(t *testing.T) {
 	witness := &leanIMTProofCircuit{
 		Root: proof.Root,
 		Proof: MerkleProof{
-			Leaf:     proof.Leaf,
-			Index:    proof.Index,
-			Siblings: [MaxCensusDepth]frontend.Variable{},
+			Leaf:      proof.Leaf,
+			PathBits:  proof.PathBits,
+			LeafIndex: proof.LeafIndex,
+			Siblings:  [MaxCensusDepth]frontend.Variable{},
 		},
 	}
 
@@ -173,9 +174,10 @@ func TestLeanIMTProofCircuitEdgeCases(t *testing.T) {
 		witness := &leanIMTProofCircuit{
 			Root: proof.Root,
 			Proof: MerkleProof{
-				Leaf:     proof.Leaf,
-				Index:    proof.Index,
-				Siblings: siblings,
+				Leaf:      proof.Leaf,
+				PathBits:  proof.PathBits,
+				LeafIndex: proof.LeafIndex,
+				Siblings:  siblings,
 			},
 		}
 
@@ -211,9 +213,10 @@ func TestLeanIMTProofCircuitEdgeCases(t *testing.T) {
 			witness := &leanIMTProofCircuit{
 				Root: proof.Root,
 				Proof: MerkleProof{
-					Leaf:     proof.Leaf,
-					Index:    proof.Index,
-					Siblings: [MaxCensusDepth]frontend.Variable{},
+					Leaf:      proof.Leaf,
+					PathBits:  proof.PathBits,
+					LeafIndex: proof.LeafIndex,
+					Siblings:  [MaxCensusDepth]frontend.Variable{},
 				},
 			}
 

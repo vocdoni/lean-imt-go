@@ -8,13 +8,15 @@ import (
 // MerkleProof contains the fields needed to verify membership:
 // - Root: root at the time of proof
 // - Leaf: the leaf value
-// - Index: packed path bits (LSB is first sibling combined)
+// - PathBits: packed path bits (LSB is first sibling combined)
+// - LeafIndex: absolute leaf position in the tree
 // - Siblings: the sibling nodes included (missing siblings are omitted)
 type MerkleProof[N any] struct {
-	Root     N
-	Leaf     N
-	Index    uint64
-	Siblings []N
+	Root      N
+	Leaf      N
+	PathBits  uint64
+	LeafIndex uint64
+	Siblings  []N
 }
 
 // GenerateProof builds a LeanIMT proof for the leaf at index.
@@ -24,11 +26,11 @@ func (t *LeanIMT[N]) GenerateProof(index int) (MerkleProof[N], error) {
 	if index < 0 || index >= t.Size() {
 		return empty, errLeafOutOfRange(index)
 	}
+	leafIndex := uint64(index)
 
 	leaf := t.nodes[0][index]
 	siblings := make([]N, 0, t.Depth())
-	// collect path bits, but we only need to know which levels were included
-	// we'll compute Index from the decisions in reverse later
+	// Collect path bits for levels where a sibling exists.
 	pathBits := make([]uint8, 0, t.Depth())
 
 	for level := 0; level < t.Depth(); level++ {
@@ -59,7 +61,7 @@ func (t *LeanIMT[N]) GenerateProof(index int) (MerkleProof[N], error) {
 		index >>= 1
 	}
 
-	// Compute Index by packing the path bits (LSB first).
+	// Pack path bits into uint64 (LSB first).
 	var packed uint64
 	for i := 0; i < len(pathBits); i++ {
 		if pathBits[i] == 1 {
@@ -69,10 +71,11 @@ func (t *LeanIMT[N]) GenerateProof(index int) (MerkleProof[N], error) {
 
 	root, _ := t.Root()
 	return MerkleProof[N]{
-		Root:     root,
-		Leaf:     leaf,
-		Index:    packed,
-		Siblings: siblings,
+		Root:      root,
+		Leaf:      leaf,
+		PathBits:  packed,
+		LeafIndex: leafIndex,
+		Siblings:  siblings,
 	}, nil
 }
 
@@ -88,7 +91,7 @@ func VerifyProofWith[N any](proof MerkleProof[N], hash Hasher[N], eq Equal[N]) b
 	}
 	node := proof.Leaf
 	for i := 0; i < len(proof.Siblings); i++ {
-		if ((proof.Index >> uint(i)) & 1) == 1 {
+		if ((proof.PathBits >> uint(i)) & 1) == 1 {
 			node = hash(proof.Siblings[i], node)
 		} else {
 			node = hash(node, proof.Siblings[i])

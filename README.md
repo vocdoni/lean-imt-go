@@ -325,7 +325,8 @@ func (votingCircuit *VotingCircuit) Define(api frontend.API) error {
         votingCircuit.CensusRoot,
         votingCircuit.VoterAddress,
         votingCircuit.Weight,
-        votingCircuit.Index,
+        votingCircuit.PathBits,
+        votingCircuit.LeafIndex,
         votingCircuit.Siblings,
     )
     if err != nil {
@@ -337,6 +338,15 @@ func (votingCircuit *VotingCircuit) Define(api frontend.API) error {
     return nil
 }
 ```
+
+### `LeafIndex` vs `PathBits`
+
+`LeafIndex` and `PathBits` are related but not interchangeable:
+
+- `LeafIndex`: absolute position of the leaf in level-0 leaves (`0..size-1`).
+- `PathBits`: packed left/right directions used while hashing siblings in the proof path (bit `i` corresponds to `siblings[i]`, LSB first).
+
+In Lean IMT, proofs omit missing siblings. Because of that, `PathBits` encodes directions for the included siblings only, while `LeafIndex` remains the canonical absolute position of the leaf.
 
 ### Constraints
 
