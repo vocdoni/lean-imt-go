@@ -124,10 +124,19 @@ func VerifyCensusProof(
 	return proof.Verify(api, root)
 }
 
-// PackLeaf packs the address and weight into a single leaf value for
-// in-circuit use.
+// PackLeaf packs a canonical (address, weight) pair into one field element.
+// It enforces address < 2^160 and weight < 2^88 so the packed value has a
+// unique representation.
+//
+//	packed = address * 2^88 + weight
 func PackLeaf(api frontend.API, address, weight frontend.Variable) frontend.Variable {
-	// packed = (address << 88) | weight
+	// api.ToBinary fails if value is bigger than n bits,
+	// effectively range-constraining address and weight.
+	// This is to prevent leaf spoofing by ensuring that the packed value
+	// is a unique representation of the (address, weight) pair.
+	api.ToBinary(address, 160) // 20 bytes for Ethereum address
+	api.ToBinary(weight, 88)
+
 	shift88 := new(big.Int).Lsh(big.NewInt(1), 88)
 	addressShifted := api.Mul(address, shift88)
 	return api.Add(addressShifted, weight)
