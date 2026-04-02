@@ -34,6 +34,7 @@ type CensusProof struct {
 	Root     *big.Int   // Merkle root
 	Siblings []*big.Int // Merkle siblings
 	PathBits uint64     // Packed merkle path bits used for proof verification
+	TreeSize uint64     // Number of leaves in the tree when the proof was generated
 	CensusParticipant
 }
 
@@ -255,6 +256,7 @@ func (c *CensusIMT) GenerateProof(address common.Address) (*CensusProof, error) 
 	return &CensusProof{
 		Root:     treeProof.Root,
 		PathBits: treeProof.PathBits,
+		TreeSize: treeProof.TreeSize,
 		CensusParticipant: CensusParticipant{
 			AddressIndex: uint64(addressIndex),
 			Address:      address,

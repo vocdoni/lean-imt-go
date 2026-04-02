@@ -5,6 +5,8 @@ import (
 	"math/big"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/math/bits"
+	"github.com/consensys/gnark/std/math/cmp"
 	"github.com/vocdoni/gnark-crypto-primitives/hash/native/bn254/poseidon"
 	"github.com/vocdoni/lean-imt-go/census"
 )
@@ -12,29 +14,65 @@ import (
 const MaxCensusDepth = 24
 
 type MerkleProof struct {
-	Leaf      frontend.Variable                 // The leaf value to verify
-	PathBits  frontend.Variable                 // Packed path bits indicating the position of the leaf
-	LeafIndex frontend.Variable                 // Absolute leaf position in the level-0 leaves
-	Siblings  [MaxCensusDepth]frontend.Variable // Array of sibling nodes for the proof path
+	Leaf       frontend.Variable                 // The leaf value to verify
+	PathBits   frontend.Variable                 // Packed per-level path bits
+	LeafIndex  frontend.Variable                 // Absolute leaf position in the level-0 leaves
+	TreeSize   frontend.Variable                 // Number of leaves when the proof was generated
+	LevelsMask frontend.Variable                 // Packed per-level mask of levels that have siblings
+	Siblings   [MaxCensusDepth]frontend.Variable // Array of sibling nodes for the proof path
+}
+
+func alignProof(pathBits, leafIndex, treeSize uint64, proofSiblings []*big.Int) (uint64, uint64, [MaxCensusDepth]frontend.Variable) {
+	siblings := [MaxCensusDepth]frontend.Variable{}
+	var alignedPathBits uint64
+	var levelMask uint64
+	siblingIdx := 0
+	index := leafIndex
+	size := treeSize
+
+	for level := range MaxCensusDepth {
+		if size <= 1 {
+			siblings[level] = big.NewInt(0)
+			continue
+		}
+
+		isRight := (index & 1) == 1
+		haveSibling := isRight || index+1 < size
+		if haveSibling {
+			levelMask |= 1 << uint(level)
+			if ((pathBits >> uint(siblingIdx)) & 1) == 1 {
+				alignedPathBits |= 1 << uint(level)
+			}
+			if siblingIdx < len(proofSiblings) {
+				siblings[level] = proofSiblings[siblingIdx]
+			} else {
+				siblings[level] = big.NewInt(0)
+			}
+			siblingIdx++
+		} else {
+			siblings[level] = big.NewInt(0)
+		}
+
+		index >>= 1
+		size = (size + 1) >> 1
+	}
+
+	return alignedPathBits, levelMask, siblings
 }
 
 // CensusProofToMerkleProof converts a census.CensusProof to a MerkleProof
 // suitable for in-circuit verification. It packs the address and weight into
 // a single leaf value and pads the siblings array to MaxCensusDepth.
 func CensusProofToMerkleProof(proof *census.CensusProof) MerkleProof {
-	siblings := [MaxCensusDepth]frontend.Variable{}
-	for i := range MaxCensusDepth {
-		if i < len(proof.Siblings) {
-			siblings[i] = proof.Siblings[i]
-		} else {
-			siblings[i] = big.NewInt(0) // Padding with zeros
-		}
-	}
+	pathBits, levelMask, siblings := alignProof(proof.PathBits, proof.AddressIndex, proof.TreeSize, proof.Siblings)
+
 	return MerkleProof{
-		Leaf:      census.PackAddressWeight(proof.Address.Big(), proof.Weight),
-		PathBits:  new(big.Int).SetUint64(proof.PathBits),
-		LeafIndex: new(big.Int).SetUint64(proof.AddressIndex),
-		Siblings:  siblings,
+		Leaf:       census.PackAddressWeight(proof.Address.Big(), proof.Weight),
+		PathBits:   new(big.Int).SetUint64(pathBits),
+		LeafIndex:  new(big.Int).SetUint64(proof.AddressIndex),
+		TreeSize:   new(big.Int).SetUint64(proof.TreeSize),
+		LevelsMask: new(big.Int).SetUint64(levelMask),
+		Siblings:   siblings,
 	}
 }
 
@@ -42,14 +80,16 @@ func CensusProofToMerkleProof(proof *census.CensusProof) MerkleProof {
 // weight into a single leaf value. This functions should be used in-circuit.
 func NewMerkleProof(
 	api frontend.API,
-	address, weight, pathBits, leafIndex frontend.Variable,
+	address, weight, pathBits, leafIndex, treeSize, levelsMask frontend.Variable,
 	siblings [MaxCensusDepth]frontend.Variable,
 ) MerkleProof {
 	return MerkleProof{
-		Leaf:      PackLeaf(api, address, weight),
-		PathBits:  pathBits,
-		LeafIndex: leafIndex,
-		Siblings:  siblings,
+		Leaf:       PackLeaf(api, address, weight),
+		PathBits:   pathBits,
+		LeafIndex:  leafIndex,
+		TreeSize:   treeSize,
+		LevelsMask: levelsMask,
+		Siblings:   siblings,
 	}
 }
 
@@ -65,34 +105,47 @@ func NewMerkleProof(
 //   - frontend.Variable: A boolean variable (0 or 1) indicating proof validity.
 //   - error: Any error that occurred during compilation.
 func (p MerkleProof) Verify(api frontend.API, root frontend.Variable) (frontend.Variable, error) {
-	// Initialize the current node with the leaf value
+	api.AssertIsLessOrEqual(1, p.TreeSize)
+	api.AssertIsLessOrEqual(api.Add(p.LeafIndex, 1), p.TreeSize)
+
+	pathBits := api.ToBinary(p.PathBits, MaxCensusDepth)
+	levelMaskBits := api.ToBinary(p.LevelsMask, MaxCensusDepth)
+
 	currentNode := p.Leaf
-	// If no siblings, the leaf should equal the root (single-node tree)
-	if len(p.Siblings) == 0 {
-		isEqual := api.IsZero(api.Sub(currentNode, root))
-		return isEqual, nil
-	}
-	// Get all index bits at once
-	indexBits := api.ToBinary(p.PathBits, len(p.Siblings))
-	// Process each sibling in the proof path
+	currentIndex := p.LeafIndex
+	currentSize := p.TreeSize
+	expectedMask := frontend.Variable(0)
+
 	for i, sibling := range p.Siblings {
-		// Check if this sibling is actually used (non-zero)
-		// For padding zeros, we skip the hashing
-		isNonZero := api.Sub(1, api.IsZero(sibling))
-		// Extract the i-th bit from the index to determine position
-		bit := indexBits[i]
-		// Compute hash based on position
+		idxBits := api.ToBinary(currentIndex, MaxCensusDepth)
+		sizeBits := api.ToBinary(currentSize, MaxCensusDepth+1)
+
+		isRight := idxBits[0]
+		nextIndex := bits.FromBinary(api, idxBits[1:])
+		sizeHalfFloor := bits.FromBinary(api, sizeBits[1:])
+		nextSize := api.Add(sizeHalfFloor, sizeBits[0]) // ceil(currentSize / 2)
+
+		currentSizeGtOne := cmp.IsLess(api, 1, currentSize)
+		hasRightSibling := cmp.IsLess(api, api.Add(currentIndex, 1), currentSize)
+		hasSibling := api.And(currentSizeGtOne, api.Or(isRight, hasRightSibling))
+
+		expectedMask = api.Add(expectedMask, api.Mul(hasSibling, new(big.Int).Lsh(big.NewInt(1), uint(i))))
+		api.AssertIsEqual(levelMaskBits[i], hasSibling)
+		api.AssertIsEqual(api.Mul(pathBits[i], api.Sub(1, hasSibling)), 0)
+
+		bit := pathBits[i]
 		leftInput := api.Select(bit, sibling, currentNode)
 		rightInput := api.Select(bit, currentNode, sibling)
-		// Hash the two inputs using Poseidon
 		hashedValue, err := poseidon.Hash(api, leftInput, rightInput)
 		if err != nil {
 			return frontend.Variable(0), fmt.Errorf("failed to hash nodes: %w", err)
 		}
-		// Only update currentNode if sibling is non-zero (not padding)
-		currentNode = api.Select(isNonZero, hashedValue, currentNode)
+		currentNode = api.Select(hasSibling, hashedValue, currentNode)
+		currentIndex = nextIndex
+		currentSize = nextSize
 	}
-	// Return 1 if roots match, 0 otherwise
+
+	api.AssertIsEqual(expectedMask, p.LevelsMask)
 	isEqual := api.IsZero(api.Sub(currentNode, root))
 	return isEqual, nil
 }
@@ -118,9 +171,11 @@ func VerifyCensusProof(
 	weight frontend.Variable,
 	pathBits frontend.Variable,
 	leafIndex frontend.Variable,
+	treeSize frontend.Variable,
+	levelsMask frontend.Variable,
 	siblings [MaxCensusDepth]frontend.Variable,
 ) (frontend.Variable, error) {
-	proof := NewMerkleProof(api, address, weight, pathBits, leafIndex, siblings)
+	proof := NewMerkleProof(api, address, weight, pathBits, leafIndex, treeSize, levelsMask, siblings)
 	return proof.Verify(api, root)
 }
 

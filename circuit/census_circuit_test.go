@@ -15,17 +15,19 @@ import (
 
 // censusProofCircuit for testing census proof verification
 type censusProofCircuit struct {
-	Root      frontend.Variable                 `gnark:"root,public"`
-	Address   frontend.Variable                 `gnark:"address,public"`
-	Weight    frontend.Variable                 `gnark:"weight"`
-	PathBits  frontend.Variable                 `gnark:"pathBits"`
-	LeafIndex frontend.Variable                 `gnark:"leafIndex"`
-	Siblings  [MaxCensusDepth]frontend.Variable `gnark:"siblings"`
+	Root       frontend.Variable                 `gnark:"root,public"`
+	Address    frontend.Variable                 `gnark:"address,public"`
+	Weight     frontend.Variable                 `gnark:"weight"`
+	PathBits   frontend.Variable                 `gnark:"pathBits"`
+	LeafIndex  frontend.Variable                 `gnark:"leafIndex"`
+	TreeSize   frontend.Variable                 `gnark:"treeSize"`
+	LevelsMask frontend.Variable                 `gnark:"levelsMask"`
+	Siblings   [MaxCensusDepth]frontend.Variable `gnark:"siblings"`
 }
 
 func (circuit *censusProofCircuit) Define(api frontend.API) error {
 	isValid, err := VerifyCensusProof(api, circuit.Root, circuit.Address,
-		circuit.Weight, circuit.PathBits, circuit.LeafIndex, circuit.Siblings)
+		circuit.Weight, circuit.PathBits, circuit.LeafIndex, circuit.TreeSize, circuit.LevelsMask, circuit.Siblings)
 	if err != nil {
 		return err
 	}
@@ -81,24 +83,18 @@ func TestVerifyCensusProof(t *testing.T) {
 			circuit := &censusProofCircuit{
 				Siblings: [MaxCensusDepth]frontend.Variable{},
 			}
+			aligned := CensusProofToMerkleProof(proof)
 
 			// Create witness
 			witness := &censusProofCircuit{
-				Root:      proof.Root,
-				Address:   proof.Address.Big(),
-				Weight:    proof.Weight,
-				PathBits:  proof.PathBits,
-				LeafIndex: proof.AddressIndex,
-				Siblings:  [MaxCensusDepth]frontend.Variable{},
-			}
-
-			// Fill siblings array
-			for j, sibling := range proof.Siblings {
-				witness.Siblings[j] = sibling
-			}
-			// Pad remaining siblings with zeros
-			for j := len(proof.Siblings); j < MaxCensusDepth; j++ {
-				witness.Siblings[j] = big.NewInt(0)
+				Root:       proof.Root,
+				Address:    proof.Address.Big(),
+				Weight:     proof.Weight,
+				PathBits:   aligned.PathBits,
+				LeafIndex:  proof.AddressIndex,
+				TreeSize:   proof.TreeSize,
+				LevelsMask: aligned.LevelsMask,
+				Siblings:   aligned.Siblings,
 			}
 
 			// Test circuit satisfaction
@@ -152,22 +148,16 @@ func TestVerifyCensusProof_LargerCensus(t *testing.T) {
 			}
 
 			circuit := &censusProofCircuit{}
+			aligned := CensusProofToMerkleProof(proof)
 			witness := &censusProofCircuit{
-				Root:      proof.Root,
-				Address:   proof.Address.Big(),
-				Weight:    proof.Weight,
-				PathBits:  proof.PathBits,
-				LeafIndex: proof.AddressIndex,
-				Siblings:  [MaxCensusDepth]frontend.Variable{},
-			}
-
-			// Fill siblings
-			for i, sibling := range proof.Siblings {
-				witness.Siblings[i] = sibling
-			}
-			// Pad remaining
-			for i := len(proof.Siblings); i < MaxCensusDepth; i++ {
-				witness.Siblings[i] = big.NewInt(0)
+				Root:       proof.Root,
+				Address:    proof.Address.Big(),
+				Weight:     proof.Weight,
+				PathBits:   aligned.PathBits,
+				LeafIndex:  proof.AddressIndex,
+				TreeSize:   proof.TreeSize,
+				LevelsMask: aligned.LevelsMask,
+				Siblings:   aligned.Siblings,
 			}
 
 			assert := test.NewAssert(t)
@@ -212,12 +202,14 @@ func TestVerifyCensusProof_EdgeCases(t *testing.T) {
 
 		circuit := &censusProofCircuit{}
 		witness := &censusProofCircuit{
-			Root:      proof.Root,
-			Address:   proof.Address.Big(),
-			Weight:    proof.Weight,
-			PathBits:  proof.PathBits,
-			LeafIndex: proof.AddressIndex,
-			Siblings:  siblings, // Padded
+			Root:       proof.Root,
+			Address:    proof.Address.Big(),
+			Weight:     proof.Weight,
+			PathBits:   0,
+			LeafIndex:  proof.AddressIndex,
+			TreeSize:   proof.TreeSize,
+			LevelsMask: 0,
+			Siblings:   siblings, // Padded
 		}
 
 		assert := test.NewAssert(t)
@@ -258,13 +250,16 @@ func TestVerifyCensusProof_EdgeCases(t *testing.T) {
 		}
 
 		circuit := &censusProofCircuit{}
+		aligned := CensusProofToMerkleProof(proof)
 		witness := &censusProofCircuit{
-			Root:      proof.Root,
-			Address:   proof.Address.Big(),
-			Weight:    proof.Weight,
-			PathBits:  proof.PathBits,
-			LeafIndex: proof.AddressIndex,
-			Siblings:  siblings,
+			Root:       proof.Root,
+			Address:    proof.Address.Big(),
+			Weight:     proof.Weight,
+			PathBits:   aligned.PathBits,
+			LeafIndex:  proof.AddressIndex,
+			TreeSize:   proof.TreeSize,
+			LevelsMask: aligned.LevelsMask,
+			Siblings:   aligned.Siblings,
 		}
 
 		assert := test.NewAssert(t)

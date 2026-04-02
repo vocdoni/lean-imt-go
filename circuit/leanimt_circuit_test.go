@@ -9,7 +9,6 @@ import (
 	"github.com/consensys/gnark/backend"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/consensys/gnark/profile"
 	"github.com/consensys/gnark/test"
 	leanimt "github.com/vocdoni/lean-imt-go"
 )
@@ -20,6 +19,19 @@ type leanIMTProofCircuit struct {
 	// Public inputs
 	Root  frontend.Variable `gnark:"merkle_root,public"`
 	Proof MerkleProof       `gnark:"merkle_proof,public"`
+}
+
+func alignedProof(proof leanimt.MerkleProof[*big.Int]) MerkleProof {
+	pathBits, levelMask, siblings := alignProof(proof.PathBits, proof.LeafIndex, proof.TreeSize, proof.Siblings)
+
+	return MerkleProof{
+		Leaf:       proof.Leaf,
+		PathBits:   pathBits,
+		LeafIndex:  proof.LeafIndex,
+		TreeSize:   proof.TreeSize,
+		LevelsMask: levelMask,
+		Siblings:   siblings,
+	}
 }
 
 // newLeanIMTProofCircuit creates a new circuit instance with the specified maximum depth.
@@ -82,23 +94,8 @@ func TestLeanIMTProofCircuit(t *testing.T) {
 
 	// Create witness assignment
 	witness := &leanIMTProofCircuit{
-		Root: proof.Root,
-		Proof: MerkleProof{
-			Leaf:      proof.Leaf,
-			PathBits:  proof.PathBits,
-			LeafIndex: proof.LeafIndex,
-			Siblings:  [MaxCensusDepth]frontend.Variable{},
-		},
-	}
-
-	// Fill siblings array
-	for i, sibling := range proof.Siblings {
-		witness.Proof.Siblings[i] = sibling
-	}
-
-	// Pad remaining siblings with zeros if needed
-	for i := len(proof.Siblings); i < MaxCensusDepth; i++ {
-		witness.Proof.Siblings[i] = big.NewInt(0)
+		Root:  proof.Root,
+		Proof: alignedProof(proof),
 	}
 
 	// Test circuit satisfaction
@@ -110,6 +107,42 @@ func TestLeanIMTProofCircuit(t *testing.T) {
 	t.Logf(" Siblings: %d", len(proof.Siblings))
 }
 
+func TestLeanIMTProofCircuitRejectsForgedZeroSiblings(t *testing.T) {
+	tree, err := leanimt.New(leanimt.PoseidonHasher, leanimt.BigIntEqual, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create tree: %v", err)
+	}
+
+	for _, leaf := range []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3)} {
+		tree.Insert(leaf)
+	}
+
+	proof, err := tree.GenerateProof(0)
+	if err != nil {
+		t.Fatalf("Failed to generate proof: %v", err)
+	}
+
+	invalid := &leanIMTProofCircuit{
+		Root:  proof.Root,
+		Proof: alignedProof(proof),
+	}
+	invalid.Proof.Leaf = proof.Root
+	invalid.Proof.PathBits = 0
+	invalid.Proof.LeafIndex = 0
+	invalid.Proof.LevelsMask = 0
+	for i := range MaxCensusDepth {
+		invalid.Proof.Siblings[i] = big.NewInt(0)
+	}
+
+	assert := test.NewAssert(t)
+	assert.CheckCircuit(
+		newLeanIMTProofCircuit(),
+		test.WithInvalidAssignment(invalid),
+		test.WithCurves(ecc.BN254),
+		test.WithBackends(backend.GROTH16),
+	)
+}
+
 func TestLeanIMTProofCircuitConstraints(t *testing.T) {
 	// Test with different depths to show constraint scaling
 	depths := []int{3, 5, 8, 10}
@@ -119,11 +152,7 @@ func TestLeanIMTProofCircuitConstraints(t *testing.T) {
 			// Create circuit with specified depth
 			circuit := newLeanIMTProofCircuit()
 
-			// Profile the compilation
-			p := profile.Start()
 			ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit)
-			p.Stop()
-
 			if err != nil {
 				t.Fatalf("Failed to compile circuit: %v", err)
 			}
@@ -133,8 +162,6 @@ func TestLeanIMTProofCircuitConstraints(t *testing.T) {
 			fmt.Printf("Constraints: %d\n", ccs.GetNbConstraints())
 			internal, secret, public := ccs.GetNbVariables()
 			fmt.Printf("Variables: %d (internal: %d, secret: %d, public: %d)\n", internal+secret+public, internal, secret, public)
-			fmt.Printf("Compilation Profile:\n")
-			fmt.Printf("  Total Constraints: %d\n", p.NbConstraints())
 			fmt.Printf("=== End Analysis ===\n\n")
 		})
 	}
@@ -163,22 +190,11 @@ func TestLeanIMTProofCircuitEdgeCases(t *testing.T) {
 		if len(proof.Siblings) != 0 {
 			t.Fatalf("Expected no siblings for single leaf tree, got %d", len(proof.Siblings))
 		}
-
-		siblings := [MaxCensusDepth]frontend.Variable{}
-		for i := range MaxCensusDepth {
-			siblings[i] = big.NewInt(0) // Padded
-		}
-
 		// Create circuit with minimal depth
 		circuit := newLeanIMTProofCircuit()
 		witness := &leanIMTProofCircuit{
-			Root: proof.Root,
-			Proof: MerkleProof{
-				Leaf:      proof.Leaf,
-				PathBits:  proof.PathBits,
-				LeafIndex: proof.LeafIndex,
-				Siblings:  siblings,
-			},
+			Root:  proof.Root,
+			Proof: alignedProof(proof),
 		}
 
 		assert := test.NewAssert(t)
@@ -211,22 +227,8 @@ func TestLeanIMTProofCircuitEdgeCases(t *testing.T) {
 			// Create circuit with sufficient depth
 			circuit := newLeanIMTProofCircuit()
 			witness := &leanIMTProofCircuit{
-				Root: proof.Root,
-				Proof: MerkleProof{
-					Leaf:      proof.Leaf,
-					PathBits:  proof.PathBits,
-					LeafIndex: proof.LeafIndex,
-					Siblings:  [MaxCensusDepth]frontend.Variable{},
-				},
-			}
-
-			// Fill siblings
-			for i, sibling := range proof.Siblings {
-				witness.Proof.Siblings[i] = sibling
-			}
-			// Pad remaining
-			for i := len(proof.Siblings); i < MaxCensusDepth; i++ {
-				witness.Proof.Siblings[i] = big.NewInt(0)
+				Root:  proof.Root,
+				Proof: alignedProof(proof),
 			}
 
 			assert := test.NewAssert(t)
