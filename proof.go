@@ -16,6 +16,7 @@ type MerkleProof[N any] struct {
 	Leaf      N
 	PathBits  uint64
 	LeafIndex uint64
+	TreeSize  uint64
 	Siblings  []N
 }
 
@@ -75,6 +76,7 @@ func (t *LeanIMT[N]) GenerateProof(index int) (MerkleProof[N], error) {
 		Leaf:      leaf,
 		PathBits:  packed,
 		LeafIndex: leafIndex,
+		TreeSize:  uint64(t.Size()),
 		Siblings:  siblings,
 	}, nil
 }
