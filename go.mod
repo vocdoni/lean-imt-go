@@ -9,7 +9,7 @@ require (
 	github.com/iden3/go-iden3-crypto v0.0.18-0.20241128121142-625bf563ffc5
 	github.com/vocdoni/davinci-node v0.0.0-20251231145653-c809413014e0
 	github.com/vocdoni/gnark-crypto-primitives v0.0.2-0.20260218072319-01482f6ccc38
-	golang.org/x/crypto v0.46.0
+	golang.org/x/crypto v0.52.0
 )
 
 require (
@@ -78,9 +78,9 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
